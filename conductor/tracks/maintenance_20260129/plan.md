@@ -4,7 +4,7 @@
 - [x] Task: Apply Rust formatting rules ee17225
     - [ ] Apply `cargo fmt` to the entire workspace.
     - [ ] Fix any linting errors flagged by `clippy`.
-- [ ] Task: Audit Workspace Dependencies
+- [x] Task: Audit Workspace Dependencies
     - [ ] Check `Cargo.toml` for outdated or unused dependencies.
     - [ ] Standardize version numbers across crates.
 - [ ] Task: Conductor - User Manual Verification 'Codebase Standardization' (Protocol in workflow.md)
