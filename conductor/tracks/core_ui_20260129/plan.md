@@ -11,10 +11,10 @@
 
 ## Phase 2: Character Progression & Storage UI
 - [x] Task: Audit Status Window 69afe02
-- [ ] Task: Improve Skill Tree Window
+- [~] Task: Improve Skill Tree Window
     - [ ] Update `interface/windows/skill_tree.rs` to use `row` and `col` positions from `LocalSkillEntry`.
     - [ ] Implement visual connectors between skill dependencies.
-- [ ] Task: Implement Storage (Warehouse) Window
+- [x] Task: Implement Storage (Warehouse) Window 5cf92af
     - [ ] Create `interface/windows/storage.rs`.
     - [ ] Bind storage items to `ClientState`.
     - [ ] Implement drag/drop between inventory and storage.
