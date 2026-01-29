@@ -93,19 +93,10 @@ impl Archive for NativeArchive {
     }
 
     fn get_file_by_path(&self, asset_path: &str) -> Option<Vec<u8>> {
-        self.file_table.get(asset_path).map(|file_information| {
+        self.file_table.get(asset_path).and_then(|file_information| {
             let mut compressed_file_buffer = vec![0u8; file_information.compressed_size_aligned as usize];
 
             let position = file_information.offset as u64 + Header::size_in_bytes() as u64;
-
-            #[cfg(feature = "debug")]
-            print_debug!(
-                "Loading file '{}' (Offset: {}, Compressed: {}, Uncompressed: {})",
-                asset_path.magenta(),
-                file_information.offset,
-                file_information.compressed_size,
-                file_information.uncompressed_size
-            );
 
             {
                 // Since the calling threads are sharing the IO bandwidth anyhow, I don't think
@@ -114,26 +105,20 @@ impl Archive for NativeArchive {
                 file_handle.seek(SeekFrom::Start(position)).unwrap();
                 file_handle
                     .read_exact(&mut compressed_file_buffer)
-                    .expect("can't read archive content");
+                    .ok()?;
             }
 
             decrypt_file(file_information, &mut compressed_file_buffer);
 
-            #[cfg(feature = "debug")]
-            {
-                let preview_len = std::cmp::min(16, compressed_file_buffer.len());
-                print_debug!(
-                    "Decrypted first {} bytes: {:?}",
-                    preview_len,
-                    &compressed_file_buffer[..preview_len]
-                );
-            }
-
             let mut decoder = ZlibDecoder::new(compressed_file_buffer.as_slice());
             let mut decompressed = Vec::with_capacity(file_information.uncompressed_size as usize);
-            decoder.read_to_end(&mut decompressed).expect("can't decompress archive content");
+            if let Err(_error) = decoder.read_to_end(&mut decompressed) {
+                #[cfg(feature = "debug")]
+                print_debug!("Failed to decompress file '{}': {:?}", asset_path.magenta(), _error);
+                return None;
+            }
 
-            decompressed
+            Some(decompressed)
         })
     }
 
