@@ -33,6 +33,6 @@
 - [x] Task: Implement Chat Window Enhancements 2627f91
     - [ ] Add support for tabs and channel filtering.
     - [ ] Implement private messaging UI.
-- [ ] Task: Implement Party/Guild Windows
+- [x] Task: Implement Party/Guild Windows 436f82d
     - [ ] Create basic list views for party/guild members.
 - [ ] Task: Conductor - User Manual Verification 'Social UI & Finalization' (Protocol in workflow.md)
