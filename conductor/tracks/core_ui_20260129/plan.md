@@ -4,7 +4,7 @@
 - [x] Task: Define UI Theme Constants 69afe02
     - [ ] Create `GothicTheme` struct in `korangar-interface` implementing the theme traits.
     - [ ] Define color palette (Obsidian, Antique Gold, etc.) in `state/theme/interface.rs`.
-- [ ] Task: Create/Import Placeholder Assets
+- [x] Task: Create/Import Placeholder Assets 46b12f3
     - [ ] Create placeholder textures for window backgrounds, buttons, and icons if final assets are missing.
     - [ ] Register new assets in `TextureLoader`.
 - [ ] Task: Conductor - User Manual Verification 'Asset Preparation & Theming' (Protocol in workflow.md)
