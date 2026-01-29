@@ -13,7 +13,7 @@
 - [x] Task: UI Theme Audit ee17225
     - [ ] Scan `korangar-interface` for hardcoded colors or styles that violate the "Gothic-Fantasy" guideline.
     - [ ] Identify assets that need replacement (e.g., "cute" icons).
-- [ ] Task: Config Optimization
+- [x] Task: Config Optimization ee17225
     - [ ] Review `wgpu` initialization in `korangar` for performance settings.
     - [ ] Verify `tokio` runtime configuration.
 - [ ] Task: Conductor - User Manual Verification 'Aesthetic & Config Review' (Protocol in workflow.md)
