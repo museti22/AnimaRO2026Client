@@ -9,7 +9,7 @@
     - [ ] Register new assets in `TextureLoader`.
 - [ ] Task: Conductor - User Manual Verification 'Asset Preparation & Theming' (Protocol in workflow.md)
 
-## Phase 2: Character Progression & Storage UI
+## Phase 2: Character Progression & Storage UI [checkpoint: a7c6642]
 - [x] Task: Audit Status Window 69afe02
 - [x] Task: Improve Skill Tree Window 50944f4
     - [ ] Update `interface/windows/skill_tree.rs` to use `row` and `col` positions from `LocalSkillEntry`.
