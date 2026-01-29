@@ -20,11 +20,11 @@
     - [ ] Implement drag/drop between inventory and storage.
 - [ ] Task: Conductor - User Manual Verification 'Character Progression & Storage UI' (Protocol in workflow.md)
 
-## Phase 3: Economy UI
+## Phase 3: Economy UI [checkpoint: 4938c2b]
 - [x] Task: Implement Inventory & Equipment Window db1738a
     - [ ] Refactor existing inventory if necessary to support new drag/drop features.
     - [ ] Implement Equipment slots with visual feedback.
-- [ ] Task: Implement Shop Interface
+- [x] Task: Implement Shop Interface 5cf92af
     - [ ] Create `interface/windows/shop.rs`.
     - [ ] Implement Buy/Sell logic and packet handling.
 - [ ] Task: Conductor - User Manual Verification 'Economy UI' (Protocol in workflow.md)
