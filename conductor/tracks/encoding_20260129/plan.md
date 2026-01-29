@@ -1,6 +1,6 @@
 # Implementation Plan - Support non-Korean GRF Encodings
 
-## Phase 1: Encoding Configuration
+## Phase 1: Encoding Configuration [checkpoint: 1971e11]
 - [x] Task: Add Encoding Setting
     - [ ] Update `korangar/src/settings/mod.rs` (or relevant settings file) to include an `archive_encoding` field.
     - [ ] Default it to "euc-kr" but allow "windows-1252".
