@@ -1,7 +1,7 @@
 # Implementation Plan - Core UI Systems Implementation
 
 ## Phase 1: Asset Preparation & Theming
-- [ ] Task: Define UI Theme Constants
+- [x] Task: Define UI Theme Constants 69afe02
     - [ ] Create `GothicTheme` struct in `korangar-interface` implementing the theme traits.
     - [ ] Define color palette (Obsidian, Antique Gold, etc.) in `state/theme/interface.rs`.
 - [ ] Task: Create/Import Placeholder Assets
