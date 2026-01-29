@@ -21,7 +21,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Character Progression & Storage UI' (Protocol in workflow.md)
 
 ## Phase 3: Economy UI
-- [ ] Task: Implement Inventory & Equipment Window
+- [x] Task: Implement Inventory & Equipment Window db1738a
     - [ ] Refactor existing inventory if necessary to support new drag/drop features.
     - [ ] Implement Equipment slots with visual feedback.
 - [ ] Task: Implement Shop Interface
