@@ -2163,6 +2163,12 @@ impl Client {
                     (ItemSource::Equipment { .. }, ItemSource::Inventory) => {
                         let _ = self.networking_system.request_item_unequip(item.index);
                     }
+                    (ItemSource::Inventory, ItemSource::Storage) => {
+                        let _ = self.networking_system.request_item_store(item.index, item.details.get_amount() as u32);
+                    }
+                    (ItemSource::Storage, ItemSource::Inventory) => {
+                        let _ = self.networking_system.request_item_unstore(item.index, item.details.get_amount() as u32);
+                    }
                     _ => {}
                 },
                 InputEvent::MoveSkill {
