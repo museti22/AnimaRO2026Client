@@ -9,16 +9,16 @@
     - [ ] Register new assets in `TextureLoader`.
 - [ ] Task: Conductor - User Manual Verification 'Asset Preparation & Theming' (Protocol in workflow.md)
 
-## Phase 2: Character Progression UI
-- [ ] Task: Implement Status Window
-    - [ ] Create `interface/windows/status.rs`.
-    - [ ] Bind stat values (Str, Agi, etc.) to `ClientState`.
-    - [ ] Implement "Add Stat" buttons sending `IncreaseAttribute` packets.
-- [ ] Task: Implement Skill Tree Window
-    - [ ] Create `interface/windows/skill_tree.rs`.
-    - [ ] Implement visual tree layout based on `SkillTreeLoader`.
-    - [ ] Implement skill learning logic (packet sending).
-- [ ] Task: Conductor - User Manual Verification 'Character Progression UI' (Protocol in workflow.md)
+## Phase 2: Character Progression & Storage UI
+- [x] Task: Audit Status Window 69afe02
+- [ ] Task: Improve Skill Tree Window
+    - [ ] Update `interface/windows/skill_tree.rs` to use `row` and `col` positions from `LocalSkillEntry`.
+    - [ ] Implement visual connectors between skill dependencies.
+- [ ] Task: Implement Storage (Warehouse) Window
+    - [ ] Create `interface/windows/storage.rs`.
+    - [ ] Bind storage items to `ClientState`.
+    - [ ] Implement drag/drop between inventory and storage.
+- [ ] Task: Conductor - User Manual Verification 'Character Progression & Storage UI' (Protocol in workflow.md)
 
 ## Phase 3: Economy UI
 - [ ] Task: Implement Inventory & Equipment Window
