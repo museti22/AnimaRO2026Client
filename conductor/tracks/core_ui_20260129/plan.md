@@ -30,7 +30,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Economy UI' (Protocol in workflow.md)
 
 ## Phase 4: Social UI & Finalization
-- [ ] Task: Implement Chat Window Enhancements
+- [x] Task: Implement Chat Window Enhancements 2627f91
     - [ ] Add support for tabs and channel filtering.
     - [ ] Implement private messaging UI.
 - [ ] Task: Implement Party/Guild Windows
