@@ -26,6 +26,7 @@
 ## Data & Configuration
 - **Asset Formats:**
     - Custom parsers for official Ragnarok data: `.grf` (archives), `.rsm` (3D models), `.rsw` (world), `.gat` (walkability).
+    - Supports configurable GRF file name encoding (EUC-KR, Windows-1252) via `encoding_rs`.
 - **Serialization:**
     - `serde`: Primary serialization framework.
     - `ron` (Rusty Object Notation): Used for game settings and UI configurations.
