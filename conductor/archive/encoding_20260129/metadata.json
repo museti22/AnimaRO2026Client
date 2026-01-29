@@ -1,0 +1,8 @@
+{
+  "track_id": "encoding_20260129",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-01-29T22:15:00Z",
+  "updated_at": "2026-01-29T22:15:00Z",
+  "description": "Support non-Korean GRF Encodings"
+}
