@@ -29,7 +29,7 @@
     - [ ] Implement Buy/Sell logic and packet handling.
 - [ ] Task: Conductor - User Manual Verification 'Economy UI' (Protocol in workflow.md)
 
-## Phase 4: Social UI & Finalization
+## Phase 4: Social UI & Finalization [checkpoint: 88d9f33]
 - [x] Task: Implement Chat Window Enhancements 2627f91
     - [ ] Add support for tabs and channel filtering.
     - [ ] Implement private messaging UI.
