@@ -9,7 +9,7 @@
     - [ ] Standardize version numbers across crates.
 - [ ] Task: Conductor - User Manual Verification 'Codebase Standardization' (Protocol in workflow.md)
 
-## Phase 2: Aesthetic & Config Review
+## Phase 2: Aesthetic & Config Review [checkpoint: 594187b]
 - [x] Task: UI Theme Audit ee17225
     - [ ] Scan `korangar-interface` for hardcoded colors or styles that violate the "Gothic-Fantasy" guideline.
     - [ ] Identify assets that need replacement (e.g., "cute" icons).
