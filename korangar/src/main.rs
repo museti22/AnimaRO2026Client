@@ -54,6 +54,7 @@ use image::{EncodableLayout, ImageFormat, ImageReader};
 use input::{MouseInputMode, MouseModeExt};
 use inventory::{HotbarPathExt, InventoryPathExt, SkillTreePathExt};
 use korangar_audio::{AudioEngine, SoundEffectKey};
+use ragnarok_bytes::encoding as encoding_rs;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, print_debug};
 #[cfg(feature = "debug")]
@@ -111,7 +112,8 @@ use crate::loaders::{MapNameTable, *};
 use crate::renderer::DebugMarkerRenderer;
 use crate::renderer::{AlignHorizontal, EffectRenderer, GameInterfaceRenderer};
 use crate::settings::{
-    GameSettingsPathExt, GraphicsSettings, IN_GAME_THEMES_PATH, LightingMode, MENU_THEMES_PATH, ServiceSettingsPathExt, WORLD_THEMES_PATH,
+    GameSettings, GameSettingsPathExt, GraphicsSettings, IN_GAME_THEMES_PATH, LightingMode, MENU_THEMES_PATH, ServiceSettingsPathExt,
+    WORLD_THEMES_PATH, Encoding,
 };
 use crate::state::SelectedServicePath;
 use crate::state::theme::{InterfaceTheme, InterfaceThemeType, WorldTheme};
@@ -514,11 +516,17 @@ impl Client {
             let shader_compiler = ShaderCompiler::new(device.clone());
         });
 
+        let game_settings = GameSettings::new();
+        let encoding = match game_settings.archive_encoding {
+            Encoding::EucKr => encoding_rs::EUC_KR,
+            Encoding::Windows1252 => encoding_rs::WINDOWS_1252,
+        };
+
         time_phase!("create game file loader", {
             let game_file_loader = Arc::new(GameFileLoader::default());
 
-            game_file_loader.load_archives_from_settings();
-            game_file_loader.load_patched_lua_files();
+            game_file_loader.load_archives_from_settings(encoding);
+            game_file_loader.load_patched_lua_files(encoding);
         });
 
         time_phase!("calculate game file hash", {
@@ -580,7 +588,7 @@ impl Client {
                 );
 
                 game_file_loader.remove_patched_lua_files();
-                game_file_loader.load_patched_lua_files();
+                game_file_loader.load_patched_lua_files(encoding);
 
                 Library::new(&game_file_loader).unwrap()
             }));
@@ -590,7 +598,7 @@ impl Client {
                 return None;
             }
 
-            game_file_loader.load_cache_archive(game_file_hash);
+            game_file_loader.load_cache_archive(game_file_hash, encoding);
 
             let map_name_table = Arc::new(MapNameTable::new(&game_file_loader));
 
