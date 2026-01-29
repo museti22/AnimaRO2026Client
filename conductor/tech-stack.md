@@ -13,11 +13,11 @@
 
 ## Application Architecture
 - **Rendering Engine:** Custom 3D renderer built on `wgpu`.
-    - Features real-time lighting, dynamic shadows, and support for complex Ragnarok Online assets (.rsm, .rsw).
+    - Features real-time lighting, dynamic shadows, and support for complex Ragnarok Online assets (.rsm, .rsw). UI uses SDF-based icons.
 - **UI System:** Custom framework (`korangar-interface`).
     - Procedural UI rendering with focus on high customizability and theme support.
 - **Networking:** Custom protocol stack (`korangar-networking`).
-    - Implements the Ragnarok Online packet protocol using `ragnarok-packets` and `ragnarok-bytes`.
+    - Implements the Ragnarok Online packet protocol using `ragnarok-packets` and `ragnarok-bytes`. Includes support for inventory, equipment, storage, and status updates.
 - **Audio:** Custom engine (`korangar-audio`).
     - Built on `cpal` for low-level audio output and `symphonia` for decoding.
 - **Collision & Physics:** Custom implementation (`korangar-collision`).
