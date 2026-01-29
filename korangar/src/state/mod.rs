@@ -72,6 +72,36 @@ impl ChatMessage {
     }
 }
 
+#[derive(Debug, Clone, RustState, StateElement)]
+pub struct PartyMember {
+    pub name: String,
+    pub job: String,
+    pub level: u16,
+    pub map: String,
+    pub is_online: bool,
+}
+
+#[derive(Default, RustState, StateElement)]
+pub struct Party {
+    pub name: String,
+    pub members: Vec<PartyMember>,
+}
+
+#[derive(Debug, Clone, RustState, StateElement)]
+pub struct GuildMember {
+    pub name: String,
+    pub job: String,
+    pub level: u16,
+    pub position: String,
+    pub is_online: bool,
+}
+
+#[derive(Default, RustState, StateElement)]
+pub struct Guild {
+    pub name: String,
+    pub members: Vec<GuildMember>,
+}
+
 /// Internal state of the client. Everything that can be viewed or modified via
 /// the user interface should be in here. State that takes care of managing OS
 /// or rendering resources should be in [`Client`](super::Client).
@@ -126,6 +156,10 @@ pub struct ClientState {
     chat_messages: Vec<ChatMessage>,
     /// List of all friends.
     friend_list: Vec<Friend>,
+    /// Player party.
+    party: Party,
+    /// Player guild.
+    guild: Guild,
     /// List of items offered in the shop.
     // TODO: Unhide this
     #[hidden_element]
@@ -307,6 +341,8 @@ impl ClientState {
             let inventory = Inventory::default();
             let storage = Inventory::default();
             let skill_tree = SkillTree::default();
+            let party = Party::default();
+            let guild = Guild::default();
         });
 
         time_phase!("create window resources", {
@@ -365,6 +401,8 @@ impl ClientState {
             dead_entities: Vec::new(),
             chat_messages,
             friend_list,
+            party,
+            guild,
             shop_items,
             buy_cart,
             sell_items,

@@ -77,6 +77,10 @@ pub enum InputEvent {
     ToggleAudioSettingsWindow,
     /// Open or close the friend list window. Only works while playing.
     ToggleFriendListWindow,
+    /// Open or close the party window. Only works while playing.
+    TogglePartyWindow,
+    /// Open or close the guild window. Only works while playing.
+    ToggleGuildWindow,
     /// Close the most recently opened or clicked closable window.
     CloseTopWindow,
     /// Toggle if the user interface should be rendered or not.

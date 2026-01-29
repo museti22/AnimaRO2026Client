@@ -83,7 +83,9 @@ use settings::{
 };
 use state::localization::Localization;
 use state::theme::{CursorThemePathExt, IndicatorThemePathExt, InterfaceThemePathExt, WorldThemePathExt};
-use state::{ChatMessage, ClientState, ClientStatePathExt, ClientStateRootExt, client_state, this_entity, this_player};
+use state::{
+    ChatMessage, ClientState, ClientStatePathExt, ClientStateRootExt, GuildPathExt, PartyPathExt, client_state, this_entity, this_player,
+};
 #[cfg(feature = "debug")]
 use wgpu::Device;
 use wgpu::util::initialize_adapter_from_env_or_default;
@@ -2051,6 +2053,22 @@ impl Client {
                                 client_state().friend_list_window(),
                                 client_state().friend_list(),
                             )),
+                        }
+                    }
+                }
+                InputEvent::TogglePartyWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Party) {
+                            true => self.interface.close_window_with_class(WindowClass::Party),
+                            false => self.interface.open_window(PartyWindow::new(client_state().party().members())),
+                        }
+                    }
+                }
+                InputEvent::ToggleGuildWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Guild) {
+                            true => self.interface.close_window_with_class(WindowClass::Guild),
+                            false => self.interface.open_window(GuildWindow::new(client_state().guild().members())),
                         }
                     }
                 }
