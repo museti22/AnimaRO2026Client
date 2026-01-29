@@ -98,6 +98,15 @@ impl Archive for NativeArchive {
 
             let position = file_information.offset as u64 + Header::size_in_bytes() as u64;
 
+            #[cfg(feature = "debug")]
+            print_debug!(
+                "Loading file '{}' (Offset: {}, Compressed: {}, Uncompressed: {})",
+                asset_path.magenta(),
+                file_information.offset,
+                file_information.compressed_size,
+                file_information.uncompressed_size
+            );
+
             {
                 // Since the calling threads are sharing the IO bandwidth anyhow, I don't think
                 // we need to allow this to run in parallel.
@@ -109,6 +118,16 @@ impl Archive for NativeArchive {
             }
 
             decrypt_file(file_information, &mut compressed_file_buffer);
+
+            #[cfg(feature = "debug")]
+            {
+                let preview_len = std::cmp::min(16, compressed_file_buffer.len());
+                print_debug!(
+                    "Decrypted first {} bytes: {:?}",
+                    preview_len,
+                    &compressed_file_buffer[..preview_len]
+                );
+            }
 
             let mut decoder = ZlibDecoder::new(compressed_file_buffer.as_slice());
             let mut decompressed = Vec::with_capacity(file_information.uncompressed_size as usize);
