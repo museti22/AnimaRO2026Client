@@ -173,13 +173,13 @@ where
                     // hovered.
                     layout.set_hovered();
 
-                    (true, Color::rgb_u8(80, 180, 180))
+                    (true, Color::rgb_u8(212, 175, 55))
                 }
-                false => (false, Color::rgb_u8(180, 180, 80)),
+                false => (false, Color::rgb_u8(40, 40, 40)),
             },
             _ => match layout_info.area.check().run(layout) {
                 true => (true, Color::rgb_u8(60, 60, 60)),
-                false => (false, Color::rgb_u8(40, 40, 40)),
+                false => (false, Color::rgb_u8(20, 20, 20)),
             },
         };
 
@@ -223,7 +223,7 @@ where
                     layout_info.area,
                     "+",
                         FontSize(10.0),
-                        Color::rgb_u8(100, 255, 100),
+                        Color::rgb_u8(57, 255, 20),
                         Color::rgb_u8(0, 0, 0),
                         HorizontalAlignment::Right { offset: 3.0, border: 1.0 },
                         VerticalAlignment::Top { offset: 3.0 },
@@ -237,9 +237,9 @@ where
                 // TODO: Put this in the theme
                 FontSize(12.0),
                 // TODO: Put this in the theme
-                Color::rgb_u8(255, 200, 255),
+                Color::rgb_u8(230, 200, 100),
                 // TODO: Put this in the theme
-                Color::rgb_u8(255, 160, 60),
+                Color::rgb_u8(212, 175, 55),
                 // TODO: Put this in the theme
                 HorizontalAlignment::Right { offset: 3.0, border: 3.0 },
                 // TODO: Put this in the theme
