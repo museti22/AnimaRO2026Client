@@ -1,6 +1,6 @@
 # Implementation Plan - Fix Debug Build Hang
 
-## Phase 1: Optimization
+## Phase 1: Optimization [checkpoint: c7d1e2c]
 - [x] Task: Modify GameFileLoader
     - [ ] Update `calculate_hash` in `korangar/src/loaders/gamefile/mod.rs` to check for `cfg!(feature = "debug")`.
     - [ ] In debug mode, return a constant dummy hash or a fast hash of just the file names/sizes to avoid reading the entire GRF content.
