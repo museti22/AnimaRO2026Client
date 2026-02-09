@@ -89,31 +89,9 @@ where
     }
 }
 
-struct SkillLevelUpHandler<P> {
-    skill_path: P,
-}
-
-impl<P> SkillLevelUpHandler<P> {
-    fn new(skill_path: P) -> Self {
-        Self { skill_path }
-    }
-}
-
-impl<P> ClickHandler<ClientState> for SkillLevelUpHandler<P>
-where
-    P: Path<ClientState, Skill, false>,
-{
-    fn handle_click(&self, state: &Context<ClientState>, queue: &mut EventQueue<ClientState>) {
-        if let Some(skill) = state.try_get(&self.skill_path) {
-            queue.queue(InputEvent::LevelUpSkill { skill_id: skill.skill_id });
-        }
-    }
-}
-
 pub struct SkillBox<A> {
     skill_path: A,
     handler: SkillBoxHandler<A>,
-    levelup_handler: SkillLevelUpHandler<A>,
     level_display: LevelDisplay,
 }
 
@@ -128,7 +106,6 @@ where
         Self {
             skill_path,
             handler: SkillBoxHandler::new(skill_path, source),
-            levelup_handler: SkillLevelUpHandler::new(skill_path),
             level_display: LevelDisplay::default(),
         }
     }
@@ -162,8 +139,6 @@ where
         layout_info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
-
-
         let (is_hovered, background_color) = match layout.get_mouse_mode() {
             MouseMode::Custom {
                 mode: MouseInputMode::MoveSkill { .. },
@@ -173,13 +148,13 @@ where
                     // hovered.
                     layout.set_hovered();
 
-                    (true, Color::rgb_u8(212, 175, 55))
+                    (true, Color::rgb_u8(80, 180, 180))
                 }
-                false => (false, Color::rgb_u8(40, 40, 40)),
+                false => (false, Color::rgb_u8(180, 180, 80)),
             },
             _ => match layout_info.area.check().run(layout) {
                 true => (true, Color::rgb_u8(60, 60, 60)),
-                false => (false, Color::rgb_u8(20, 20, 20)),
+                false => (false, Color::rgb_u8(40, 40, 40)),
             },
         };
 
@@ -195,9 +170,7 @@ where
             layout.register_drop_handler(&self.handler);
         }
 
-        if let Some(skill) = state.try_get(&self.skill_path)
-            && skill.skill_id.0 != 0
-        {
+        if let Some(skill) = state.try_get(&self.skill_path) {
             layout.add_sprite(
                 layout_info.area,
                 &skill.actions,
@@ -210,36 +183,15 @@ where
                 layout.register_click_handler(MouseButton::Left, &self.handler);
             }
 
-            // Check if we can level up
-            if let Some(player) = state.try_get(&crate::state::this_player())
-                && player.skill_points > 0
-                && skill.skill_level.0 < skill.max_level.0
-            {
-                if is_hovered {
-                    layout.register_click_handler(MouseButton::Right, &self.levelup_handler);
-                }
-
-                layout.add_text(
-                    layout_info.area,
-                    "+",
-                        FontSize(10.0),
-                        Color::rgb_u8(57, 255, 20),
-                        Color::rgb_u8(0, 0, 0),
-                        HorizontalAlignment::Right { offset: 3.0, border: 1.0 },
-                        VerticalAlignment::Top { offset: 3.0 },
-                        OverflowBehavior::Shrink,
-                    );
-            }
-
             layout.add_text(
                 layout_info.area,
                 self.level_display.string.as_ref().unwrap(),
                 // TODO: Put this in the theme
                 FontSize(12.0),
                 // TODO: Put this in the theme
-                Color::rgb_u8(230, 200, 100),
+                Color::rgb_u8(255, 200, 255),
                 // TODO: Put this in the theme
-                Color::rgb_u8(212, 175, 55),
+                Color::rgb_u8(255, 160, 60),
                 // TODO: Put this in the theme
                 HorizontalAlignment::Right { offset: 3.0, border: 3.0 },
                 // TODO: Put this in the theme

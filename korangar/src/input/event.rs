@@ -61,8 +61,6 @@ pub enum InputEvent {
     ToggleInventoryWindow,
     /// Open or close the equipment window. Only works while playing.
     ToggleEquipmentWindow,
-    /// Open or close the storage window. Only works while playing.
-    ToggleStorageWindow,
     /// Open or close the skill tree window. Only works while playing.
     ToggleSkillTreeWindow,
     /// Open or close the stats window. Only works while playing.
@@ -77,10 +75,8 @@ pub enum InputEvent {
     ToggleAudioSettingsWindow,
     /// Open or close the friend list window. Only works while playing.
     ToggleFriendListWindow,
-    /// Open or close the party window. Only works while playing.
-    TogglePartyWindow,
-    /// Open or close the guild window. Only works while playing.
-    ToggleGuildWindow,
+    /// Open or close the keybinding settings window.
+    ToggleKeybindingSettingsWindow,
     /// Close the most recently opened or clicked closable window.
     CloseTopWindow,
     /// Toggle if the user interface should be rendered or not.
@@ -123,6 +119,11 @@ pub enum InputEvent {
     /// type.
     PlayerInteract {
         /// Id of the entity to interact with.
+        entity_id: EntityId,
+    },
+    /// Pick up an item from the ground.
+    PickUpItem {
+        /// Id of the item entity to pick up.
         entity_id: EntityId,
     },
     /// Send a chat message.
@@ -222,11 +223,6 @@ pub enum InputEvent {
     },
     /// Up a stat.
     StatUp { stat_type: StatUpType },
-    /// Level up a skill.
-    LevelUpSkill {
-        /// Id of the skill to level up.
-        skill_id: ragnarok_packets::SkillId,
-    },
     /// Reload the language from disk.
     #[cfg(feature = "debug")]
     ReloadLanguage,

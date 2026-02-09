@@ -11,6 +11,8 @@ use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::KeyCode;
 
+use crate::settings::KeybindingSettings;
+
 pub use self::event::InputEvent;
 pub use self::key::Key;
 pub use self::mode::{Grabbed, MouseInputMode, MouseModeExt};
@@ -200,6 +202,7 @@ impl InputSystem {
     pub fn handle_keyboard_input(
         &mut self,
         events: &mut Vec<InputEvent>,
+        keybinding_settings: &KeybindingSettings,
         #[cfg(feature = "debug")] process_mouse: bool,
         #[cfg(feature = "debug")] use_debug_camera: bool,
     ) {
@@ -210,38 +213,24 @@ impl InputSystem {
             events.push(InputEvent::ToggleMenuWindow);
         }
 
-        if alt_down && self.get_key(KeyCode::KeyE).pressed() {
-            events.push(InputEvent::ToggleInventoryWindow);
+        // Window toggles using Alt + configurable key.
+        if alt_down {
+            for &key_code in &[
+                keybinding_settings.toggle_inventory.to_key_code(),
+                keybinding_settings.toggle_equipment.to_key_code(),
+                keybinding_settings.toggle_skill_tree.to_key_code(),
+                keybinding_settings.toggle_stats.to_key_code(),
+                keybinding_settings.toggle_friend_list.to_key_code(),
+            ] {
+                if self.get_key(key_code).pressed() {
+                    if let Some(event) = keybinding_settings.find_window_toggle(key_code) {
+                        events.push(event);
+                    }
+                }
+            }
         }
 
-        if alt_down && self.get_key(KeyCode::KeyW).pressed() {
-            events.push(InputEvent::ToggleStorageWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyS).pressed() {
-            events.push(InputEvent::ToggleSkillTreeWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyA).pressed() {
-            events.push(InputEvent::ToggleStatsWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyZ).pressed() {
-            events.push(InputEvent::ToggleFriendListWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyP).pressed() {
-            events.push(InputEvent::TogglePartyWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyG).pressed() {
-            events.push(InputEvent::ToggleGuildWindow);
-        }
-
-        if alt_down && self.get_key(KeyCode::KeyQ).pressed() {
-            events.push(InputEvent::ToggleEquipmentWindow);
-        }
-
+        // Ctrl+key shortcuts (these remain hardcoded).
         if control_down && self.get_key(KeyCode::KeyS).pressed() {
             events.push(InputEvent::ToggleGameSettingsWindow);
         }
@@ -266,28 +255,23 @@ impl InputSystem {
             events.push(InputEvent::CloseTopWindow);
         }
 
-        if self.get_key(KeyCode::KeyJ).pressed() {
-            events.push(InputEvent::CastSkill { slot: HotbarSlot(0) });
-        }
+        // Hotbar skill casting using configurable keybindings.
+        if !alt_down && !control_down {
+            for (slot_index, bound_key) in keybinding_settings.hotbar_slots().iter().enumerate() {
+                let key_code = bound_key.to_key_code();
 
-        if self.get_key(KeyCode::KeyJ).released() {
-            events.push(InputEvent::StopSkill { slot: HotbarSlot(0) });
-        }
+                if self.get_key(key_code).pressed() {
+                    events.push(InputEvent::CastSkill {
+                        slot: HotbarSlot(slot_index as u16),
+                    });
+                }
 
-        if self.get_key(KeyCode::KeyL).pressed() {
-            events.push(InputEvent::CastSkill { slot: HotbarSlot(1) });
-        }
-
-        if self.get_key(KeyCode::KeyL).released() {
-            events.push(InputEvent::StopSkill { slot: HotbarSlot(1) });
-        }
-
-        if self.get_key(KeyCode::KeyU).pressed() {
-            events.push(InputEvent::CastSkill { slot: HotbarSlot(2) });
-        }
-
-        if self.get_key(KeyCode::KeyU).released() {
-            events.push(InputEvent::StopSkill { slot: HotbarSlot(2) });
+                if self.get_key(key_code).released() {
+                    events.push(InputEvent::StopSkill {
+                        slot: HotbarSlot(slot_index as u16),
+                    });
+                }
+            }
         }
 
         #[cfg(feature = "debug")]

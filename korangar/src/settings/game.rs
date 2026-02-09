@@ -5,31 +5,14 @@ use ron::ser::PrettyConfig;
 use rust_state::RustState;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, RustState, StateElement, PartialEq, Eq)]
-pub enum Encoding {
-    EucKr,
-    Windows1252,
-}
-
-impl Default for Encoding {
-    fn default() -> Self {
-        Self::EucKr
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, RustState, StateElement)]
 pub struct GameSettings {
     pub auto_attack: bool,
-    #[serde(default)]
-    pub archive_encoding: Encoding,
 }
 
 impl Default for GameSettings {
     fn default() -> Self {
-        Self {
-            auto_attack: true,
-            archive_encoding: Encoding::default(),
-        }
+        Self { auto_attack: true }
     }
 }
 

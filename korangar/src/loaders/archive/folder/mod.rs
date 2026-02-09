@@ -63,16 +63,16 @@ impl FolderArchive {
 
         (full_path, compressed)
     }
+}
 
-    pub fn from_path(path: &Path) -> Self {
+impl Archive for FolderArchive {
+    fn from_path(path: &Path) -> Self {
         let folder_path = PathBuf::from(path);
         let file_mapping = Self::load_mapping(&folder_path);
 
         Self { folder_path, file_mapping }
     }
-}
 
-impl Archive for FolderArchive {
     fn file_exists(&self, asset_path: &str) -> bool {
         self.file_mapping.contains_key(asset_path)
     }

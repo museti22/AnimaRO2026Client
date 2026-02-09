@@ -54,7 +54,6 @@ use image::{EncodableLayout, ImageFormat, ImageReader};
 use input::{MouseInputMode, MouseModeExt};
 use inventory::{HotbarPathExt, InventoryPathExt, SkillTreePathExt};
 use korangar_audio::{AudioEngine, SoundEffectKey};
-use ragnarok_bytes::encoding as encoding_rs;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, print_debug};
 #[cfg(feature = "debug")]
@@ -72,8 +71,8 @@ use networking::{PacketHistory, PacketHistoryCallback};
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
-    BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, HotbarSlot, SellItemsResult, SkillId, SkillType,
-    TilePosition, UnitId, WorldPosition,
+    AttackRange, BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, HotbarSlot, SellItemsResult, SkillId,
+    SkillType, TilePosition, UnitId, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{Context, ManuallyAssertExt};
@@ -84,9 +83,7 @@ use settings::{
 };
 use state::localization::Localization;
 use state::theme::{CursorThemePathExt, IndicatorThemePathExt, InterfaceThemePathExt, WorldThemePathExt};
-use state::{
-    ChatMessage, ClientState, ClientStatePathExt, ClientStateRootExt, GuildPathExt, PartyPathExt, client_state, this_entity, this_player,
-};
+use state::{ChatMessage, ClientState, ClientStatePathExt, ClientStateRootExt, client_state, this_entity, this_player};
 #[cfg(feature = "debug")]
 use wgpu::Device;
 use wgpu::util::initialize_adapter_from_env_or_default;
@@ -107,16 +104,15 @@ use crate::input::{InputEvent, InputSystem};
 use crate::interface::cursor::{MouseCursor, MouseCursorState};
 use crate::interface::resource::{ItemSource, SkillSource};
 use crate::interface::windows::*;
-use crate::loaders::{MapNameTable, *};
+use crate::loaders::*;
 #[cfg(feature = "debug")]
-use crate::renderer::DebugMarkerRenderer;
-use crate::renderer::{AlignHorizontal, EffectRenderer, GameInterfaceRenderer};
+use crate::renderer::{AlignHorizontal, DebugMarkerRenderer};
+use crate::renderer::{EffectRenderer, GameInterfaceRenderer};
 use crate::settings::{
-    GameSettings, GameSettingsPathExt, GraphicsSettings, IN_GAME_THEMES_PATH, LightingMode, MENU_THEMES_PATH, ServiceSettingsPathExt,
-    WORLD_THEMES_PATH, Encoding,
+    GameSettingsPathExt, GraphicsSettings, IN_GAME_THEMES_PATH, LightingMode, MENU_THEMES_PATH, ServiceSettingsPathExt, WORLD_THEMES_PATH,
 };
-use crate::state::SelectedServicePath;
 use crate::state::theme::{InterfaceTheme, InterfaceThemeType, WorldTheme};
+use crate::state::{BufferedAction, SelectedServicePath};
 use crate::system::GameTimer;
 #[cfg(feature = "debug")]
 use crate::world::MarkerIdentifier;
@@ -124,10 +120,11 @@ use crate::world::*;
 
 const CLIENT_NAME: &str = "Korangar";
 const ROLLING_CUTTER_ID: SkillId = SkillId(2036);
-const DEFAULT_MAP: &str = "prontera";
+const DEFAULT_MAP: &str = "geffen";
 const START_CAMERA_FOCUS_POINT: Point3<f32> = Point3::new(600.0, 0.0, 240.0);
 const DEFAULT_BACKGROUND_MUSIC: Option<&str> = Some("bgm\\01.mp3");
 const MAIN_MENU_CLICK_SOUND_EFFECT: &str = "버튼소리.wav";
+const ITEM_PICKUP_RANGE: AttackRange = AttackRange(1);
 // TODO: The number of point lights that can cast shadows should be configurable
 // through the graphics settings. For now I just chose an arbitrary smaller
 // number that should be playable on most devices.
@@ -355,7 +352,6 @@ struct Client {
     font_loader: Arc<FontLoader>,
     sprite_loader: Arc<SpriteLoader>,
     texture_loader: Arc<TextureLoader>,
-    skill_tree_loader: Arc<SkillTreeLoader>,
     library: Arc<Library>,
 
     interface_renderer: InterfaceRenderer,
@@ -446,6 +442,7 @@ struct Client {
     window: Option<Arc<Window>>,
 
     map: Option<Box<Map>>,
+    pending_skill_target: Option<inventory::Skill>,
     client_state: Context<ClientState>,
 }
 
@@ -516,17 +513,11 @@ impl Client {
             let shader_compiler = ShaderCompiler::new(device.clone());
         });
 
-        let game_settings = GameSettings::new();
-        let encoding = match game_settings.archive_encoding {
-            Encoding::EucKr => encoding_rs::EUC_KR,
-            Encoding::Windows1252 => encoding_rs::WINDOWS_1252,
-        };
-
         time_phase!("create game file loader", {
             let game_file_loader = Arc::new(GameFileLoader::default());
 
-            game_file_loader.load_archives_from_settings(encoding);
-            game_file_loader.load_patched_lua_files(encoding);
+            game_file_loader.load_archives_from_settings();
+            game_file_loader.load_patched_lua_files();
         });
 
         time_phase!("calculate game file hash", {
@@ -569,10 +560,6 @@ impl Client {
             let sprite_loader = Arc::new(SpriteLoader::new(game_file_loader.clone(), texture_loader.clone()));
             let action_loader = Arc::new(ActionLoader::new(game_file_loader.clone(), audio_engine.clone()));
             let effect_loader = Arc::new(EffectLoader::new(game_file_loader.clone()));
-
-            let mut skill_tree_loader = SkillTreeLoader::new();
-            skill_tree_loader.load(&game_file_loader);
-            let skill_tree_loader = Arc::new(skill_tree_loader);
             let animation_loader = Arc::new(AnimationLoader::new());
 
             let library = Arc::new(Library::new(&game_file_loader).unwrap_or_else(|_| {
@@ -588,7 +575,7 @@ impl Client {
                 );
 
                 game_file_loader.remove_patched_lua_files();
-                game_file_loader.load_patched_lua_files(encoding);
+                game_file_loader.load_patched_lua_files();
 
                 Library::new(&game_file_loader).unwrap()
             }));
@@ -598,9 +585,7 @@ impl Client {
                 return None;
             }
 
-            game_file_loader.load_cache_archive(game_file_hash, encoding);
-
-            let map_name_table = Arc::new(MapNameTable::new(&game_file_loader));
+            game_file_loader.load_cache_archive(game_file_hash);
 
             let async_loader = Arc::new(AsyncLoader::new(
                 action_loader.clone(),
@@ -611,7 +596,6 @@ impl Client {
                 texture_loader.clone(),
                 video_loader.clone(),
                 library.clone(),
-                map_name_table,
             ));
 
             let interface_renderer = InterfaceRenderer::new(
@@ -788,7 +772,6 @@ impl Client {
             font_loader,
             sprite_loader,
             texture_loader,
-            skill_tree_loader,
             library,
             interface_renderer,
             bottom_interface_renderer,
@@ -860,6 +843,7 @@ impl Client {
             window: None,
 
             map: Some(map),
+            pending_skill_target: None,
             client_state,
         })
     }
@@ -1075,6 +1059,8 @@ impl Client {
 
                     self.client_state.follow_mut(client_state().entities()).clear();
                     self.client_state.follow_mut(client_state().dead_entities()).clear();
+                    self.client_state.follow_mut(client_state().ground_items()).clear();
+                    *self.client_state.follow_mut(client_state().buffered_action()) = None;
 
                     self.audio_engine.play_background_music_track(None);
 
@@ -1250,16 +1236,7 @@ impl Client {
 
                         // If the entity was already visible, we use it's old alpha value.
                         if let Some(entity) = entities.iter().find(|entity| entity.get_entity_id() == entity_id) {
-                            let fade_state = entity.get_fade_state();
-                            match fade_state {
-                                FadeState::Opaque => {
-                                    npc.set_fade_state(FadeState::Opaque);
-                                }
-                                FadeState::Fading { .. } => {
-                                    let alpha = fade_state.calculate_alpha(client_tick);
-                                    npc.set_fade_state(FadeState::from_alpha(alpha, FadeDirection::In, client_tick));
-                                }
-                            }
+                            npc.inherit_fade_state(entity, client_tick);
                         };
 
                         // Sometimes (like after a job change) the server will tell the client
@@ -1320,17 +1297,71 @@ impl Client {
                             .iter_mut()
                             .find(|entity| entity.get_entity_id() == entity_id)
                         {
-                            // Preserve alpha when transitioning from any state to fading out.
-                            let current_alpha = entity.get_fade_state().calculate_alpha(client_tick);
-                            entity.set_fade_state(FadeState::from_alpha(current_alpha, FadeDirection::Out, client_tick));
+                            entity.fade_out(reason, client_tick);
                         }
                     }
 
                     // If the entity that was removed had an attack buffered we remove the entity
                     // from the buffer.
-                    let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
-                    if buffered_attack_entity.is_some_and(|buffered_entity_id| buffered_entity_id == entity_id) {
-                        *buffered_attack_entity = None;
+                    let buffered_action = self.client_state.follow_mut(client_state().buffered_action());
+                    if buffered_action.is_some_and(|buffered_action| buffered_action.is_attack_entity(entity_id)) {
+                        *buffered_action = None;
+                    }
+                }
+                NetworkEvent::AddGroundItem {
+                    entity_id,
+                    item_id,
+                    is_identified,
+                    quantity,
+                    position,
+                    x_offset,
+                    y_offset,
+                } => {
+                    if let Some(map) = self.map.as_ref()
+                        && let Some(mut ground_item) = GroundItem::new(
+                            map,
+                            item_id,
+                            entity_id,
+                            is_identified,
+                            quantity,
+                            position,
+                            x_offset,
+                            y_offset,
+                            client_tick,
+                        )
+                    {
+                        let ground_items = self.client_state.follow_mut(client_state().ground_items());
+                        let entity_part_files = ground_item.get_entity_part_files(&self.library);
+
+                        if let Some(animation_data) = self
+                            .async_loader
+                            // TODO: Technically Npc is not correct here. We could add an item
+                            // variant or refactor this fuction to take an optional entity
+                            // type.
+                            .request_animation_data_load(entity_id, EntityType::Npc, entity_part_files)
+                        {
+                            ground_item.set_animation_data(animation_data);
+                        }
+
+                        ground_items.push(ground_item);
+                    } else {
+                        #[cfg(feature = "debug")]
+                        print_debug!("[{}] failed to spawn item", "error".red());
+                    }
+                }
+                NetworkEvent::RemoveGroundItem { entity_id } => {
+                    if let Some(item) = self
+                        .client_state
+                        .follow_mut(client_state().ground_items())
+                        .iter_mut()
+                        .find(|item| item.get_entity_id() == entity_id)
+                    {
+                        item.fade_out(client_tick);
+                    }
+
+                    let buffered_action = self.client_state.follow_mut(client_state().buffered_action());
+                    if buffered_action.is_some_and(|buffered_action| buffered_action.is_pick_up_item(entity_id)) {
+                        *buffered_action = None;
                     }
                 }
                 NetworkEvent::EntityMove {
@@ -1385,6 +1416,8 @@ impl Client {
                     // Only the player must stay alive between map changes.
                     self.client_state.follow_mut(client_state().entities()).truncate(1);
                     self.client_state.follow_mut(client_state().dead_entities()).clear();
+                    self.client_state.follow_mut(client_state().ground_items()).clear();
+                    *self.client_state.follow_mut(client_state().buffered_action()) = None;
 
                     // Close any remaining dialogs.
                     self.interface.close_window_with_class(WindowClass::Dialog);
@@ -1431,13 +1464,13 @@ impl Client {
                         .is_some_and(|player| player.get_entity_id() == source_entity_id)
                     {
                         let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
-                        let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
+                        let buffered_action = self.client_state.follow_mut(client_state().buffered_action());
 
-                        if let Some(entity_id) = buffered_attack_entity.take() {
+                        if let Some(BufferedAction::AttackEntity { entity_id }) = *buffered_action {
                             let _ = self.networking_system.player_attack(entity_id);
 
-                            if auto_attack {
-                                *buffered_attack_entity = Some(entity_id);
+                            if !auto_attack {
+                                *buffered_action = None;
                             }
                         }
                     }
@@ -1469,6 +1502,29 @@ impl Client {
                         };
 
                         self.particle_holder.spawn_particle(particle);
+                    }
+                }
+                NetworkEvent::EntityPickUpItem { entity_id, item_entity_id } => {
+                    let item_position = self
+                        .client_state
+                        .follow(client_state().ground_items())
+                        .iter()
+                        .find(|item| item.get_entity_id() == item_entity_id)
+                        .map(|item| item.get_tile_position());
+
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id)
+                    {
+                        if let Some(item_position) = item_position {
+                            entity.rotate_towards(item_position);
+                        }
+
+                        if matches!(entity.get_entity_type(), EntityType::Player | EntityType::Hidden) {
+                            entity.set_pickup(client_tick);
+                        }
                     }
                 }
                 NetworkEvent::HealEffect { entity_id, heal_amount } => {
@@ -1563,21 +1619,25 @@ impl Client {
                     // should allow you to sell the new
                     // amount of items.
                 }
+                NetworkEvent::ItemObtained {
+                    item_id,
+                    quantity,
+                    is_identified,
+                } => {
+                    let name = self.library.get::<ItemName>(ItemNameKey { item_id, is_identified }).to_string();
+                    let message = format!("You got {name} ({quantity}).");
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(message, MessageColor::Information));
+                }
                 NetworkEvent::InventoryItemRemoved { index, amount, .. } => {
                     self.client_state.follow_mut(client_state().inventory()).remove_item(index, amount);
                 }
                 NetworkEvent::SkillTree { skill_information } => {
-                    let job_id = self
-                        .client_state
-                        .try_follow(this_player())
-                        .map(|p| p.get_common().job_id)
-                        .unwrap_or(0) as u32;
                     self.client_state.follow_mut(client_state().skill_tree()).fill(
                         &self.sprite_loader,
                         &self.action_loader,
-                        &self.skill_tree_loader,
                         skill_information,
-                        job_id,
                         client_tick,
                     );
                 }
@@ -1876,7 +1936,9 @@ impl Client {
                             direction: Direction::North,
                         });
 
-                        *self.client_state.follow_mut(client_state().buffered_attack_entity()) = Some(target_entity_id);
+                        *self.client_state.follow_mut(client_state().buffered_action()) = Some(BufferedAction::AttackEntity {
+                            entity_id: target_entity_id,
+                        });
                     }
                 }
             }
@@ -1898,8 +1960,10 @@ impl Client {
         }
 
         if !interface_has_focus {
+            let keybinding_settings = self.client_state.follow(client_state().keybinding_settings());
             self.input_system.handle_keyboard_input(
                 &mut self.input_event_buffer,
+                keybinding_settings,
                 #[cfg(feature = "debug")]
                 self.interface.get_mouse_mode().is_default(),
                 #[cfg(feature = "debug")]
@@ -1921,13 +1985,11 @@ impl Client {
                         .find(|service| service.service_id() == service_id)
                         .unwrap();
                     let address = format!("{}:{}", service.address, service.port);
-                    println!("Resolving address: {}", address); // DEBUG
                     let socket_address = address
                         .to_socket_addrs()
                         .expect("Failed to resolve IP")
                         .next()
                         .expect("ill formatted service IP");
-                    println!("Resolved IP: {:?}", socket_address); // DEBUG
 
                     let packet_version = match service.packet_version {
                         Some(packet_version) => match packet_version {
@@ -1979,7 +2041,9 @@ impl Client {
                 InputEvent::RotateCamera { rotation } => self.player_camera.soft_rotate(rotation),
                 InputEvent::ResetCameraRotation => self.player_camera.reset_rotation(),
                 InputEvent::ToggleMenuWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
+                    if self.pending_skill_target.is_some() {
+                        self.pending_skill_target = None;
+                    } else if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Menu) {
                             true => self.interface.close_window_with_class(WindowClass::Menu),
                             false => self.interface.open_window(MenuWindow),
@@ -1991,14 +2055,6 @@ impl Client {
                         match self.interface.is_window_with_class_open(WindowClass::Inventory) {
                             true => self.interface.close_window_with_class(WindowClass::Inventory),
                             false => self.interface.open_window(InventoryWindow::new(client_state().inventory().items())),
-                        }
-                    }
-                }
-                InputEvent::ToggleStorageWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Storage) {
-                            true => self.interface.close_window_with_class(WindowClass::Storage),
-                            false => self.interface.open_window(StorageWindow::new(client_state().storage().items())),
                         }
                     }
                 }
@@ -2053,6 +2109,15 @@ impl Client {
                         .interface
                         .open_window(AudioSettingsWindow::new(client_state().audio_settings())),
                 },
+                InputEvent::ToggleKeybindingSettingsWindow => {
+                    match self.interface.is_window_with_class_open(WindowClass::KeybindingSettings) {
+                        true => self.interface.close_window_with_class(WindowClass::KeybindingSettings),
+                        false => self.interface.open_window(KeybindingSettingsWindow::new(
+                            client_state().keybinding_settings(),
+                            client_state().keybinding_capabilities(),
+                        )),
+                    }
+                }
                 InputEvent::ToggleFriendListWindow => {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::FriendList) {
@@ -2061,22 +2126,6 @@ impl Client {
                                 client_state().friend_list_window(),
                                 client_state().friend_list(),
                             )),
-                        }
-                    }
-                }
-                InputEvent::TogglePartyWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Party) {
-                            true => self.interface.close_window_with_class(WindowClass::Party),
-                            false => self.interface.open_window(PartyWindow::new(client_state().party().members())),
-                        }
-                    }
-                }
-                InputEvent::ToggleGuildWindow => {
-                    if self.client_state.try_follow(this_entity()).is_some() {
-                        match self.interface.is_window_with_class_open(WindowClass::Guild) {
-                            true => self.interface.close_window_with_class(WindowClass::Guild),
-                            false => self.interface.open_window(GuildWindow::new(client_state().guild().members())),
                         }
                     }
                 }
@@ -2116,8 +2165,8 @@ impl Client {
                         });
                     }
 
-                    // Unbuffer any buffered attack.
-                    *self.client_state.follow_mut(client_state().buffered_attack_entity()) = None;
+                    // Unbuffer any buffered action.
+                    *self.client_state.follow_mut(client_state().buffered_action()) = None;
                 }
                 InputEvent::PlayerInteract { entity_id } => {
                     let entity = self
@@ -2131,10 +2180,10 @@ impl Client {
                             EntityType::Npc => self.networking_system.start_dialog(entity_id),
                             EntityType::Monster => {
                                 let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
-                                let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
+                                let buffered_action = self.client_state.follow_mut(client_state().buffered_action());
 
                                 if auto_attack {
-                                    *buffered_attack_entity = Some(entity_id);
+                                    *buffered_action = Some(BufferedAction::AttackEntity { entity_id });
                                 }
 
                                 self.networking_system.player_attack(entity_id)
@@ -2149,6 +2198,47 @@ impl Client {
                             }),
                             _ => Ok(()),
                         };
+                    }
+                }
+                InputEvent::PickUpItem { entity_id } => {
+                    self.mouse_cursor.set_state(MouseCursorState::PickUpItem, client_tick);
+
+                    if let Some(map) = &self.map {
+                        let player_position = self.client_state.try_follow(this_entity()).map(|player| player.get_tile_position());
+                        let item_position = self
+                            .client_state
+                            .follow(client_state().ground_items())
+                            .iter()
+                            .find(|item| item.get_entity_id() == entity_id)
+                            .map(|item| item.get_tile_position());
+
+                        if let (Some(player_position), Some(item_position)) = (player_position, item_position) {
+                            if player_position
+                                .x
+                                .abs_diff(item_position.x)
+                                .max(player_position.y.abs_diff(item_position.y))
+                                <= ITEM_PICKUP_RANGE.0
+                            {
+                                let _ = self.networking_system.pick_up_item(entity_id);
+
+                                *self.client_state.follow_mut(client_state().buffered_action()) = None;
+                            } else if let Some(path) =
+                                self.path_finder
+                                    .find_walkable_path_in_range(&**map, player_position, item_position, ITEM_PICKUP_RANGE)
+                                && let Some(nearest_tile) = path.last()
+                            {
+                                let _ = self.networking_system.player_move(WorldPosition {
+                                    x: nearest_tile.x,
+                                    y: nearest_tile.y,
+                                    direction: Direction::North,
+                                });
+
+                                *self.client_state.follow_mut(client_state().buffered_action()) =
+                                    Some(BufferedAction::PickUpItem { entity_id });
+                            } else {
+                                *self.client_state.follow_mut(client_state().buffered_action()) = None;
+                            }
+                        }
                     }
                 }
                 #[cfg(feature = "debug")]
@@ -2189,12 +2279,6 @@ impl Client {
                     (ItemSource::Equipment { .. }, ItemSource::Inventory) => {
                         let _ = self.networking_system.request_item_unequip(item.index);
                     }
-                    (ItemSource::Inventory, ItemSource::Storage) => {
-                        let _ = self.networking_system.request_item_store(item.index, item.details.get_amount() as u32);
-                    }
-                    (ItemSource::Storage, ItemSource::Inventory) => {
-                        let _ = self.networking_system.request_item_unstore(item.index, item.details.get_amount() as u32);
-                    }
                     _ => {}
                 },
                 InputEvent::MoveSkill {
@@ -2220,18 +2304,6 @@ impl Client {
                     if let Some(skill) = self.client_state.follow(client_state().hotbar()).get_skill_in_slot(slot).as_ref() {
                         match skill.skill_type {
                             SkillType::Passive => {}
-                            SkillType::Attack => {
-                                if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
-                                }
-                            }
-                            SkillType::Ground | SkillType::Trap => {
-                                if let PickerTarget::Tile { x, y } = input_report.mouse_target {
-                                    let _ = self
-                                        .networking_system
-                                        .cast_ground_skill(skill.skill_id, skill.skill_level, TilePosition { x, y });
-                                }
-                            }
                             SkillType::SelfCast => match skill.skill_id == ROLLING_CUTTER_ID {
                                 true => {
                                     let _ = self.networking_system.cast_channeling_skill(
@@ -2248,16 +2320,8 @@ impl Client {
                                     );
                                 }
                             },
-                            SkillType::Support => {
-                                if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                    let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
-                                } else {
-                                    let _ = self.networking_system.cast_skill(
-                                        skill.skill_id,
-                                        skill.skill_level,
-                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                    );
-                                }
+                            SkillType::Attack | SkillType::Support | SkillType::Ground | SkillType::Trap => {
+                                self.pending_skill_target = Some(skill.clone());
                             }
                         }
                     }
@@ -2312,9 +2376,6 @@ impl Client {
                 }
                 InputEvent::StatUp { stat_type } => {
                     let _ = self.networking_system.request_stat_up(stat_type);
-                }
-                InputEvent::LevelUpSkill { skill_id } => {
-                    let _ = self.networking_system.upgrade_skill(skill_id);
                 }
                 #[cfg(feature = "debug")]
                 InputEvent::ReloadLanguage => {
@@ -2486,6 +2547,20 @@ impl Client {
                         .find(|entity| entity.get_entity_id() == entity_id)
                     {
                         entity.set_animation_data(animation_data);
+                    } else if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().dead_entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id)
+                    {
+                        entity.set_animation_data(animation_data);
+                    } else if let Some(item) = self
+                        .client_state
+                        .follow_mut(client_state().ground_items())
+                        .iter_mut()
+                        .find(|item| item.get_entity_id() == entity_id)
+                    {
+                        item.set_animation_data(animation_data);
                     }
                 }
                 (LoaderId::ItemSprite(item_id), LoadableResource::ItemSprite { texture, location }) => match location {
@@ -2627,12 +2702,31 @@ impl Client {
                 self.client_state
                     .follow_mut(client_state().dead_entities())
                     .iter_mut()
-                    .for_each(|entity| entity.update(&self.audio_engine, self.map.as_ref().unwrap(), current_camera, client_tick));
+                    .for_each(|entity| {
+                        entity.update(&self.audio_engine, self.map.as_ref().unwrap(), current_camera, client_tick);
+
+                        if entity.is_death_animation_over() && !entity.is_fading() {
+                            entity.fade_out(DisappearanceReason::Died, client_tick);
+                        }
+                    });
+
+                self.client_state
+                    .follow_mut(client_state().ground_items())
+                    .iter_mut()
+                    .for_each(|item| item.update(client_tick));
 
                 // Remove entities that have finished fading out.
                 self.client_state
                     .follow_mut(client_state().entities())
-                    .retain(|entity| !entity.is_fading_out_complete(client_tick));
+                    .retain(|entity| !entity.should_be_removed(client_tick));
+
+                self.client_state
+                    .follow_mut(client_state().dead_entities())
+                    .retain(|entity| !entity.should_be_removed(client_tick));
+
+                self.client_state
+                    .follow_mut(client_state().ground_items())
+                    .retain(|item| !item.should_be_removed(client_tick));
 
                 // Buffered attack (the player tried attacking while out of range).
                 let auto_attack = *self.client_state.follow(client_state().game_settings().auto_attack());
@@ -2641,12 +2735,28 @@ impl Client {
                     .try_follow(this_entity())
                     .is_some_and(|player| player.stopped_moving())
                 {
-                    let buffered_attack_entity = self.client_state.follow_mut(client_state().buffered_attack_entity());
-                    if let Some(entity_id) = buffered_attack_entity.take() {
-                        let _ = self.networking_system.player_attack(entity_id);
+                    let buffered_action = self.client_state.follow_mut(client_state().buffered_action()).take();
 
-                        if auto_attack {
-                            *buffered_attack_entity = Some(entity_id);
+                    if let Some(buffered_action) = buffered_action {
+                        match buffered_action {
+                            BufferedAction::AttackEntity { entity_id } => {
+                                let _ = self.networking_system.player_attack(entity_id);
+
+                                if auto_attack {
+                                    *self.client_state.follow_mut(client_state().buffered_action()) =
+                                        Some(BufferedAction::AttackEntity { entity_id });
+                                }
+                            }
+                            BufferedAction::PickUpItem { entity_id } => {
+                                if self
+                                    .client_state
+                                    .follow(client_state().ground_items())
+                                    .iter()
+                                    .any(|item| item.get_entity_id() == entity_id)
+                                {
+                                    let _ = self.networking_system.pick_up_item(entity_id);
+                                }
+                            }
                         }
                     }
                 }
@@ -2689,6 +2799,7 @@ impl Client {
             let shadow_method = *self.client_state.follow(client_state().graphics_settings().shadow_method());
             let shadow_detail = *self.client_state.follow(client_state().graphics_settings().shadow_detail());
             let sdsm_enabled = *self.client_state.follow(client_state().graphics_settings().sdsm());
+
             let use_sdsm = sdsm_enabled & !self.player_camera.is_rotating_or_zooming_fast();
 
             let ambient_light_color = map.ambient_light_color();
@@ -2861,6 +2972,14 @@ impl Client {
                         &self.pathing_texture_set,
                     );
 
+                    #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_options.show_ground_items))]
+                    map.render_ground_items(
+                        entity_instructions,
+                        self.client_state.follow(client_state().ground_items()),
+                        &partition_camera,
+                        client_tick,
+                    );
+
                     #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_options.show_entities))]
                     map.render_entities(
                         entity_instructions,
@@ -2942,6 +3061,14 @@ impl Client {
                     _ if *self.client_state.follow(client_state().render_options().show_entities_paper()) => &self.player_camera,
                     _ => current_camera,
                 };
+
+                #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_options.show_ground_items))]
+                map.render_ground_items(
+                    &mut self.entity_instructions,
+                    self.client_state.follow(client_state().ground_items()),
+                    entity_camera,
+                    client_tick,
+                );
 
                 #[cfg_attr(feature = "debug", korangar_debug::debug_condition(render_options.show_entities))]
                 map.render_entities(
@@ -3051,26 +3178,70 @@ impl Client {
 
                     let is_interface_hovered = interface_frame.is_interface_hovered();
 
-                    let cursor_state = match input_report.mouse_target {
-                        _ if is_rotating_camera => MouseCursorState::RotateCamera,
-                        PickerTarget::Entity(entity_id) if !is_interface_hovered => self
-                            .client_state
-                            .follow(client_state().entities())
-                            .iter()
-                            .find(|entity| entity.get_entity_id() == entity_id)
-                            .map(|entity| match entity.get_entity_type() {
-                                EntityType::Npc => MouseCursorState::Dialog,
-                                EntityType::Warp => MouseCursorState::Warp,
-                                EntityType::Monster => MouseCursorState::Attack,
-                                _ => MouseCursorState::Default,
-                            })
-                            .unwrap_or(MouseCursorState::Default),
-                        _ => MouseCursorState::Default,
+                    let cursor_state = if self.pending_skill_target.is_some() {
+                        MouseCursorState::Attack
+                    } else {
+                        match input_report.mouse_target {
+                            _ if is_rotating_camera => MouseCursorState::RotateCamera,
+                            PickerTarget::Entity(entity_id) if !is_interface_hovered => {
+                                if self
+                                    .client_state
+                                    .follow(client_state().ground_items())
+                                    .iter()
+                                    .any(|item| item.get_entity_id() == entity_id)
+                                {
+                                    MouseCursorState::HoverItem
+                                } else {
+                                    self.client_state
+                                        .follow(client_state().entities())
+                                        .iter()
+                                        .find(|entity| entity.get_entity_id() == entity_id)
+                                        .map(|entity| match entity.get_entity_type() {
+                                            EntityType::Npc => MouseCursorState::Dialog,
+                                            EntityType::Warp => MouseCursorState::Warp,
+                                            EntityType::Monster => MouseCursorState::Attack,
+                                            _ => MouseCursorState::Default,
+                                        })
+                                        .unwrap_or(MouseCursorState::Default)
+                                }
+                            }
+                            _ => MouseCursorState::Default,
+                        }
                     };
                     self.mouse_cursor.set_state(cursor_state, client_tick);
 
                     if let Some(mouse_button) = input_report.mouse_click {
-                        if is_interface_hovered {
+                        if let Some(skill) = self.pending_skill_target.take() {
+                            if mouse_button == MouseButton::Left && !is_interface_hovered {
+                                match skill.skill_type {
+                                    SkillType::Attack => {
+                                        if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
+                                            let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
+                                        }
+                                    }
+                                    SkillType::Support => {
+                                        if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
+                                            let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
+                                        } else {
+                                            let _ = self.networking_system.cast_skill(
+                                                skill.skill_id,
+                                                skill.skill_level,
+                                                self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
+                                            );
+                                        }
+                                    }
+                                    SkillType::Ground | SkillType::Trap => {
+                                        if let PickerTarget::Tile { x, y } = input_report.mouse_target {
+                                            let _ = self
+                                                .networking_system
+                                                .cast_ground_skill(skill.skill_id, skill.skill_level, TilePosition { x, y });
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            // Right click or interface click: cancel targeting (skill already taken)
+                        } else if is_interface_hovered {
                             interface_frame.click(&self.client_state, mouse_button);
                         } else {
                             interface_frame.unfocus();
@@ -3079,7 +3250,17 @@ impl Client {
                                 match input_report.mouse_target {
                                     PickerTarget::Nothing => {}
                                     PickerTarget::Entity(entity_id) => {
-                                        self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                                        let is_ground_item = self
+                                            .client_state
+                                            .follow(client_state().ground_items())
+                                            .iter()
+                                            .any(|item| item.get_entity_id() == entity_id);
+
+                                        if is_ground_item {
+                                            self.input_event_buffer.push(InputEvent::PickUpItem { entity_id })
+                                        } else {
+                                            self.input_event_buffer.push(InputEvent::PlayerInteract { entity_id })
+                                        }
                                     }
                                     PickerTarget::Tile { x, y } => {
                                         let destination = TilePosition { x, y };
@@ -3139,9 +3320,9 @@ impl Client {
                     interface_frame
                 };
 
-                let buffered_attack_entity = *self.client_state.follow(client_state().buffered_attack_entity());
+                let buffered_action = *self.client_state.follow(client_state().buffered_action());
 
-                if let Some(entity_id) = buffered_attack_entity
+                if let Some(BufferedAction::AttackEntity { entity_id }) = buffered_action
                     && let Some(entity) = self
                         .client_state
                         .follow(client_state().entities())
@@ -3169,16 +3350,15 @@ impl Client {
                     }
                     PickerTarget::Entity(entity_id) => {
                         if !interface_frame.is_interface_hovered() && is_mouse_mode_default {
-                            let entity = self
+                            if let Some(entity) = self
                                 .client_state
                                 .follow(client_state().entities())
                                 .iter()
-                                .find(|entity| entity.get_entity_id() == entity_id);
-
-                            if let Some(entity) = entity {
+                                .find(|entity| entity.get_entity_id() == entity_id)
+                            {
                                 // Since the buffered attack entity will render its status anyway,
                                 // we make sure not to render it here again if it's the same.
-                                if !buffered_attack_entity.is_some_and(|id| id == entity_id) {
+                                if !buffered_action.is_some_and(|buffered_action| buffered_action.is_attack_entity(entity_id)) {
                                     entity.render_status(
                                         &self.middle_interface_renderer,
                                         current_camera,
@@ -3189,20 +3369,24 @@ impl Client {
 
                                 if let Some(name) = &entity.get_details() {
                                     let name = name.split('#').next().unwrap();
-
-                                    let offset = ScreenPosition {
-                                        left: 15.0 * scaling.get_factor(),
-                                        top: 15.0 * scaling.get_factor(),
-                                    };
-
-                                    self.middle_interface_renderer.render_text(
-                                        name,
-                                        input_report.mouse_position + offset,
-                                        Color::WHITE,
-                                        FontSize(16.0),
-                                        AlignHorizontal::Mid,
-                                    );
+                                    self.middle_interface_renderer
+                                        .render_hover_text(name, scaling, input_report.mouse_position);
                                 }
+                            } else if let Some(item) = self
+                                .client_state
+                                .follow(client_state().ground_items())
+                                .iter()
+                                .find(|item| item.get_entity_id() == entity_id)
+                            {
+                                let name = self.library.get::<ItemName>(ItemNameKey {
+                                    item_id: item.item_id,
+                                    is_identified: item.is_identified,
+                                });
+
+                                // TODO: Don't allocate every frame
+                                let text = format!("{name}: {}ea", item.quantity);
+                                self.middle_interface_renderer
+                                    .render_hover_text(&text, scaling, input_report.mouse_position);
                             }
                         }
                     }
@@ -3432,18 +3616,11 @@ impl ApplicationHandler for Client {
         if self.window.is_none() {
             time_phase!("create window", {
                 let reader = ImageReader::with_format(Cursor::new(ICON_DATA), ImageFormat::Png);
-                let icon = match reader.decode() {
-                    Ok(image_buffer) => {
-                        let image_buffer = image_buffer.to_rgba8();
-                        let image_data = image_buffer.as_bytes().to_vec();
-                        assert_eq!(image_buffer.width(), image_buffer.height(), "icon must be square");
-                        Icon::from_rgba(image_data, image_buffer.width(), image_buffer.height()).ok()
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to decode window icon: {:?}", e);
-                        None
-                    }
-                };
+                let image_buffer = reader.decode().unwrap().to_rgba8();
+                let image_data = image_buffer.as_bytes().to_vec();
+
+                assert_eq!(image_buffer.width(), image_buffer.height(), "icon must be square");
+                let icon = Icon::from_rgba(image_data, image_buffer.width(), image_buffer.height()).unwrap();
 
                 let window_attributes = Window::default_attributes()
                     .with_inner_size(LogicalSize {
@@ -3451,7 +3628,7 @@ impl ApplicationHandler for Client {
                         height: INITIAL_SCREEN_SIZE.height,
                     })
                     .with_title(CLIENT_NAME)
-                    .with_window_icon(icon)
+                    .with_window_icon(Some(icon))
                     .with_visible(false);
                 let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 

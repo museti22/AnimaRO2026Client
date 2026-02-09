@@ -46,8 +46,10 @@ impl SevenZipArchive {
     pub fn file_is_compressed(&self, asset_path: &str) -> Option<Compression> {
         self.file_lookup.get(asset_path).map(|entry| entry.compression)
     }
+}
 
-    pub fn from_path(path: &Path) -> Self {
+impl Archive for SevenZipArchive {
+    fn from_path(path: &Path) -> Self {
         #[cfg(feature = "debug")]
         let timer = Timer::new_dynamic(format!("load game data from {}", path.display().magenta()));
         let mut archive_file = File::open(path).expect("can't open archive");
@@ -95,9 +97,7 @@ impl SevenZipArchive {
             file_path: PathBuf::from(path),
         }
     }
-}
 
-impl Archive for SevenZipArchive {
     fn file_exists(&self, asset_path: &str) -> bool {
         self.file_lookup.contains_key(asset_path)
     }

@@ -20,13 +20,12 @@ mod game_settings;
 mod graphics_settings;
 mod hotbar;
 mod interface_settings;
+mod keybinding_settings;
 mod inventory;
 mod login;
 #[cfg(feature = "debug")]
 mod maps;
 mod menu;
-mod party;
-mod guild;
 #[cfg(feature = "debug")]
 mod packet_inspector;
 #[cfg(feature = "debug")]
@@ -39,7 +38,6 @@ mod sell_cart;
 mod server_selection;
 mod skill_tree;
 mod stats;
-mod storage;
 #[cfg(feature = "debug")]
 mod theme_inspector;
 
@@ -68,12 +66,11 @@ pub use self::graphics_settings::GraphicsSettingsWindow;
 pub use self::hotbar::HotbarWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 pub use self::inventory::InventoryWindow;
+pub use self::keybinding_settings::KeybindingSettingsWindow;
 pub use self::login::{LoginWindow, LoginWindowState, LoginWindowStatePathExt};
 #[cfg(feature = "debug")]
 pub use self::maps::MapsWindow;
 pub use self::menu::MenuWindow;
-pub use self::party::PartyWindow;
-pub use self::guild::GuildWindow;
 #[cfg(feature = "debug")]
 pub use self::packet_inspector::PacketInspectorWindow;
 #[cfg(feature = "debug")]
@@ -86,7 +83,6 @@ pub use self::sell_cart::SellCartWindow;
 pub use self::server_selection::ServerSelectionWindow;
 pub use self::skill_tree::SkillTreeWindow;
 pub use self::stats::StatsWindow;
-pub use self::storage::StorageWindow;
 #[cfg(feature = "debug")]
 pub use self::theme_inspector::{ThemeInspectorWindow, ThemeInspectorWindowState};
 
@@ -107,13 +103,11 @@ pub enum WindowClass {
     Hotbar,
     Inventory,
     Equipment,
-    Storage,
+    KeybindingSettings,
     SkillTree,
     Stats,
     FriendList,
     FriendRequest,
-    Party,
-    Guild,
     Login,
     Menu,
     Respawn,

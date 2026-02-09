@@ -13,7 +13,6 @@ use blake3::Hash;
 #[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, Timer, print_debug};
 use korangar_loaders::{FileLoader, FileNotFoundError};
-use ragnarok_bytes::encoding::Encoding;
 
 pub use self::cache::{sync_cache_archive, texture_file_dds_name, video_file_ivf_name};
 use self::list::GameArchiveList;
@@ -91,24 +90,24 @@ impl GameFileLoader {
         }
     }
 
-    fn load_archive_from_path(path: &str, encoding: &'static Encoding) -> Box<dyn Archive> {
+    fn load_archive_from_path(path: &str) -> Box<dyn Archive> {
         let path = Path::new(path);
 
         match GameFileLoader::get_archive_type_by_path(path) {
             ArchiveType::Folder => Box::new(FolderArchive::from_path(path)),
-            ArchiveType::Native => Box::new(NativeArchive::from_path(path, encoding)),
+            ArchiveType::Native => Box::new(NativeArchive::from_path(path)),
             ArchiveType::SevenZip => Box::new(SevenZipArchive::from_path(path)),
         }
     }
 
-    pub fn load_archives_from_settings(&self, encoding: &'static Encoding) {
+    pub fn load_archives_from_settings(&self) {
         #[cfg(feature = "debug")]
         let timer = Timer::new("load game archives");
 
         let game_archive_list = GameArchiveList::load();
 
         game_archive_list.archives.iter().for_each(|path| {
-            let game_archive = Self::load_archive_from_path(path, encoding);
+            let game_archive = Self::load_archive_from_path(path);
             self.add_archive(game_archive, true);
         });
 
@@ -117,23 +116,14 @@ impl GameFileLoader {
     }
 
     pub fn calculate_hash(&self) -> Hash {
-        #[cfg(feature = "debug")]
-        {
-            print_debug!("[{}] Skipping game file hash calculation in debug mode", "warning".yellow());
-            return Hash::from([0; 32]);
-        }
-
-        #[cfg(not(feature = "debug"))]
-        {
-            let mut hasher = blake3::Hasher::new_derive_key(GAME_FILE_DERIVE_KEY);
-            self.archives
-                .read()
-                .unwrap()
-                .iter()
-                .filter(|archive| archive.is_game_archive)
-                .for_each(|archive| archive.archive.hash(&mut hasher));
-            hasher.finalize()
-        }
+        let mut hasher = blake3::Hasher::new_derive_key(GAME_FILE_DERIVE_KEY);
+        self.archives
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|archive| archive.is_game_archive)
+            .for_each(|archive| archive.archive.hash(&mut hasher));
+        hasher.finalize()
     }
 
     pub fn remove_patched_lua_files(&self) {
@@ -142,12 +132,12 @@ impl GameFileLoader {
         }
     }
 
-    pub fn load_patched_lua_files(&self, encoding: &'static Encoding) {
+    pub fn load_patched_lua_files(&self) {
         if !Path::new(LUA_ARCHIVE_FILE_NAME).exists() {
-            self.patch_lua_files(encoding);
+            self.patch_lua_files();
         }
 
-        let lua_archive = Self::load_archive_from_path(LUA_ARCHIVE_FILE_NAME, encoding);
+        let lua_archive = Self::load_archive_from_path(LUA_ARCHIVE_FILE_NAME);
         self.add_archive(lua_archive, false);
     }
 
@@ -165,7 +155,7 @@ impl GameFileLoader {
         files
     }
 
-    fn patch_lua_files(&self, encoding: &'static Encoding) {
+    fn patch_lua_files(&self) {
         use lunify::{Format, Settings, unify};
 
         const LUA_BYTECODE_EXTENSION: &str = ".lub";
@@ -233,7 +223,7 @@ impl GameFileLoader {
     }
 
     #[allow(unused_variables)]
-    pub fn load_cache_archive(&self, game_file_hash: Hash, encoding: &'static Encoding) {
+    pub fn load_cache_archive(&self, game_file_hash: Hash) {
         let path = Path::new(CACHE_FILE_NAME);
 
         if !path.exists() && !path.is_dir() {

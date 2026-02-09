@@ -1,7 +1,5 @@
 //! Implements the mixcrypt scheme use by the original client.
 
-#[cfg(feature = "debug")]
-use korangar_debug::logging::{Colorize, print_debug};
 use ragnarok_formats::archive::FileTableRow;
 
 /// File uses a mixed crypto (Simple DES + Shuffle):

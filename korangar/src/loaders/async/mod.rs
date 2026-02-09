@@ -1,0 +1,274 @@
+use std::cmp::PartialEq;
+use std::sync::{Arc, Mutex};
+
+use hashbrown::HashMap;
+#[cfg(feature = "debug")]
+use korangar_debug::logging::print_debug;
+#[cfg(feature = "debug")]
+use korangar_debug::profiling::Profiler;
+use korangar_networking::{InventoryItem, NoMetadata, ShopItem};
+use ragnarok_packets::{EntityId, ItemId, TilePosition};
+use rayon::{ThreadPool, ThreadPoolBuilder};
+
+use crate::graphics::Texture;
+use crate::init_tls_rand;
+use crate::loaders::error::LoadError;
+use crate::loaders::{ActionLoader, AnimationLoader, ImageType, MapLoader, ModelLoader, SpriteLoader, TextureLoader, VideoLoader};
+#[cfg(feature = "debug")]
+use crate::threads;
+use crate::world::{AnimationData, EntityType, ItemName, ItemNameKey, ItemResource, ItemResourceKey, Library, Map, ResourceMetadata};
+
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
+pub enum ItemLocation {
+    Inventory,
+    Shop,
+}
+
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub enum LoaderId {
+    AnimationData(EntityId),
+    ItemSprite(ItemId),
+    Map(String),
+}
+
+pub enum LoadableResource {
+    AnimationData(Arc<AnimationData>),
+    ItemSprite { texture: Arc<Texture>, location: ItemLocation },
+    Map { map: Box<Map>, position: Option<TilePosition> },
+}
+
+enum LoadStatus {
+    Loading,
+    Completed(LoadableResource),
+    Failed(LoadError),
+}
+
+impl PartialEq for LoadStatus {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+pub struct AsyncLoader {
+    action_loader: Arc<ActionLoader>,
+    animation_loader: Arc<AnimationLoader>,
+    map_loader: Arc<MapLoader>,
+    model_loader: Arc<ModelLoader>,
+    sprite_loader: Arc<SpriteLoader>,
+    texture_loader: Arc<TextureLoader>,
+    video_loader: Arc<VideoLoader>,
+    library: Arc<Library>,
+    pending_loads: Arc<Mutex<HashMap<LoaderId, LoadStatus>>>,
+    thread_pool: ThreadPool,
+}
+
+impl AsyncLoader {
+    pub fn new(
+        action_loader: Arc<ActionLoader>,
+        animation_loader: Arc<AnimationLoader>,
+        map_loader: Arc<MapLoader>,
+        model_loader: Arc<ModelLoader>,
+        sprite_loader: Arc<SpriteLoader>,
+        texture_loader: Arc<TextureLoader>,
+        video_loader: Arc<VideoLoader>,
+        library: Arc<Library>,
+    ) -> Self {
+        let thread_pool = ThreadPoolBuilder::new()
+            .thread_name(|number| format!("light task thread pool {number}"))
+            .num_threads(1)
+            .start_handler(|_| init_tls_rand())
+            .build()
+            .unwrap();
+
+        Self {
+            action_loader,
+            animation_loader,
+            map_loader,
+            model_loader,
+            sprite_loader,
+            texture_loader,
+            video_loader,
+            library,
+            pending_loads: Arc::new(Mutex::new(HashMap::new())),
+            thread_pool,
+        }
+    }
+
+    #[must_use]
+    pub fn request_animation_data_load(
+        &self,
+        entity_id: EntityId,
+        entity_type: EntityType,
+        entity_part_files: Vec<String>,
+    ) -> Option<Arc<AnimationData>> {
+        match self.animation_loader.get(&entity_part_files) {
+            Some(animation_data) => Some(animation_data),
+            None => {
+                let sprite_loader = self.sprite_loader.clone();
+                let action_loader = self.action_loader.clone();
+                let animation_loader = self.animation_loader.clone();
+
+                self.request_load(LoaderId::AnimationData(entity_id), move || {
+                    #[cfg(feature = "debug")]
+                    let _load_measurement = Profiler::start_measurement("animation data load");
+
+                    let animation_data = match animation_loader.get(&entity_part_files) {
+                        Some(animation_data) => animation_data,
+                        None => animation_loader.load(&sprite_loader, &action_loader, entity_type, &entity_part_files)?,
+                    };
+                    Ok(LoadableResource::AnimationData(animation_data))
+                });
+
+                None
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn request_item_sprite_load(
+        &self,
+        item_location: ItemLocation,
+        item_id: ItemId,
+        path: &str,
+        image_type: ImageType,
+    ) -> Option<Arc<Texture>> {
+        match self.texture_loader.get(path, image_type) {
+            Some(texture) => Some(texture),
+            None => {
+                let texture_loader = self.texture_loader.clone();
+                let path = path.to_string();
+
+                self.request_load(LoaderId::ItemSprite(item_id), move || {
+                    #[cfg(feature = "debug")]
+                    let _load_measurement = Profiler::start_measurement("item sprite load");
+
+                    let texture = match texture_loader.get(&path, image_type) {
+                        None => texture_loader.load(&path, image_type)?,
+                        Some(texture) => texture,
+                    };
+                    Ok(LoadableResource::ItemSprite {
+                        texture,
+                        location: item_location,
+                    })
+                });
+
+                None
+            }
+        }
+    }
+
+    pub fn request_inventory_item_metadata_load(&self, item: InventoryItem<NoMetadata>) -> InventoryItem<ResourceMetadata> {
+        let is_identified = item.is_identified();
+
+        let resource_name = self.library.get::<ItemResource>(ItemResourceKey {
+            item_id: item.item_id,
+            is_identified,
+        });
+        let full_path = format!("유저인터페이스\\item\\{resource_name}.bmp");
+        let texture = self.request_item_sprite_load(ItemLocation::Inventory, item.item_id, &full_path, ImageType::Color);
+        let name = self
+            .library
+            .get::<ItemName>(ItemNameKey {
+                item_id: item.item_id,
+                is_identified,
+            })
+            .to_string();
+
+        let metadata = ResourceMetadata { texture, name };
+
+        InventoryItem { metadata, ..item }
+    }
+
+    pub fn request_shop_item_metadata_load(&self, item: ShopItem<NoMetadata>) -> ShopItem<ResourceMetadata> {
+        let resource_name = self.library.get::<ItemResource>(ItemResourceKey {
+            item_id: item.item_id,
+            is_identified: true,
+        });
+        let full_path = format!("유저인터페이스\\item\\{resource_name}.bmp");
+        let texture = self.request_item_sprite_load(ItemLocation::Shop, item.item_id, &full_path, ImageType::Color);
+        let name = self
+            .library
+            .get::<ItemName>(ItemNameKey {
+                item_id: item.item_id,
+                is_identified: true,
+            })
+            .to_string();
+
+        let metadata = ResourceMetadata { texture, name };
+
+        ShopItem { metadata, ..item }
+    }
+
+    pub fn request_map_load(&self, map_name: String, position: Option<TilePosition>) {
+        let map_loader = self.map_loader.clone();
+        let model_loader = self.model_loader.clone();
+        let texture_loader = self.texture_loader.clone();
+        let video_loader = self.video_loader.clone();
+        let library = self.library.clone();
+
+        self.request_load(LoaderId::Map(map_name.clone()), move || {
+            #[cfg(feature = "debug")]
+            let _load_measurement = Profiler::start_measurement("map load");
+            let map = map_loader.load(map_name, &model_loader, texture_loader, video_loader.clone(), &library)?;
+            Ok(LoadableResource::Map { map, position })
+        });
+    }
+
+    fn request_load<F>(&self, id: LoaderId, load_function: F)
+    where
+        F: FnOnce() -> Result<LoadableResource, LoadError> + Send + 'static,
+    {
+        let pending_loads = Arc::clone(&self.pending_loads);
+
+        pending_loads.lock().unwrap().insert(id.clone(), LoadStatus::Loading);
+
+        self.thread_pool.spawn(move || {
+            #[cfg(feature = "debug")]
+            let _measurement = threads::Loader::start_frame();
+
+            let result = load_function();
+
+            let mut pending_loads = pending_loads.lock().unwrap();
+
+            if !pending_loads.contains_key(&id) {
+                return;
+            }
+
+            let status = match result {
+                Ok(resource) => LoadStatus::Completed(resource),
+                Err(err) => LoadStatus::Failed(err),
+            };
+
+            pending_loads.insert(id, status);
+        });
+    }
+
+    pub fn take_completed(&self) -> impl Iterator<Item = (LoaderId, LoadableResource)> + '_ {
+        std::iter::from_fn({
+            let pending_loads = Arc::clone(&self.pending_loads);
+
+            move || {
+                let mut pending_loads = pending_loads.lock().unwrap();
+
+                let completed_id = pending_loads
+                    .iter()
+                    .find(|(_, status)| matches!(status, LoadStatus::Completed(_) | LoadStatus::Failed(_)))
+                    .map(|(id, _)| id.clone());
+
+                if let Some(id) = completed_id {
+                    match pending_loads.remove(&id).unwrap() {
+                        LoadStatus::Failed(_error) => {
+                            #[cfg(feature = "debug")]
+                            print_debug!("Async load error: {:?}", _error);
+                            None
+                        }
+                        LoadStatus::Completed(resource) => Some((id, resource)),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    None
+                }
+            }
+        })
+    }
+}

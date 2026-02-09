@@ -5,6 +5,10 @@ pub mod seven_zip;
 use std::path::{Path, PathBuf};
 
 pub trait Archive: Send + Sync {
+    fn from_path(path: &Path) -> Self
+    where
+        Self: Sized;
+
     /// Tests if a file exists.
     fn file_exists(&self, asset_path: &str) -> bool;
 

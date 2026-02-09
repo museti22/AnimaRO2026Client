@@ -46,12 +46,13 @@ use crate::inventory::{Hotbar, Inventory, SkillTree};
 use crate::loaders::{ClientInfo, FontLoader, FontSize, GameFileLoader, OverflowBehavior, load_client_info};
 use crate::renderer::InterfaceRenderer;
 use crate::settings::{
-    GameSettings, GraphicsSettingsCapabilities, InterfaceSettings, InterfaceSettingsCapabilities, LoginSettings, ServiceSettings,
+    GameSettings, GraphicsSettingsCapabilities, InterfaceSettings, InterfaceSettingsCapabilities, KeybindingCapabilities, KeybindingSettings,
+    LoginSettings, ServiceSettings,
 };
 use crate::state::theme::WorldTheme;
 #[cfg(feature = "debug")]
 use crate::world::Object;
-use crate::world::{Entity, Player, ResourceMetadata};
+use crate::world::{Entity, GroundItem, Player, ResourceMetadata};
 use crate::{AudioSettings, GraphicsSettings};
 
 /// A message in the in-game chat.
@@ -72,34 +73,20 @@ impl ChatMessage {
     }
 }
 
-#[derive(Debug, Clone, RustState, StateElement)]
-pub struct PartyMember {
-    pub name: String,
-    pub job: String,
-    pub level: u16,
-    pub map: String,
-    pub is_online: bool,
+#[derive(Debug, Clone, Copy, RustState, StateElement)]
+pub enum BufferedAction {
+    AttackEntity { entity_id: EntityId },
+    PickUpItem { entity_id: EntityId },
 }
 
-#[derive(Default, RustState, StateElement)]
-pub struct Party {
-    pub name: String,
-    pub members: Vec<PartyMember>,
-}
+impl BufferedAction {
+    pub fn is_attack_entity(&self, entity_id: EntityId) -> bool {
+        matches!(self, BufferedAction::AttackEntity { entity_id: buffered_entity_id } if *buffered_entity_id == entity_id)
+    }
 
-#[derive(Debug, Clone, RustState, StateElement)]
-pub struct GuildMember {
-    pub name: String,
-    pub job: String,
-    pub level: u16,
-    pub position: String,
-    pub is_online: bool,
-}
-
-#[derive(Default, RustState, StateElement)]
-pub struct Guild {
-    pub name: String,
-    pub members: Vec<GuildMember>,
+    pub fn is_pick_up_item(&self, entity_id: EntityId) -> bool {
+        matches!(self, BufferedAction::PickUpItem { entity_id: buffered_entity_id } if *buffered_entity_id == entity_id)
+    }
 }
 
 /// Internal state of the client. Everything that can be viewed or modified via
@@ -127,6 +114,11 @@ pub struct ClientState {
     graphics_settings: GraphicsSettings,
     /// Graphics capabilities used in the graphics settings window.
     graphics_settings_capabilities: GraphicsSettingsCapabilities,
+    /// Saved keybinding settings.
+    keybinding_settings: KeybindingSettings,
+    /// Available key options for keybinding drop-downs.
+    #[hidden_element]
+    keybinding_capabilities: KeybindingCapabilities,
 
     /// The interface theme for the menu windows.
     menu_theme: InterfaceTheme,
@@ -151,15 +143,13 @@ pub struct ClientState {
     entities: Vec<Entity>,
     /// All dead entities on the map.
     dead_entities: Vec<Entity>,
+    /// All ground items on the map.
+    ground_items: Vec<GroundItem>,
 
     /// List of all received chat messages.
     chat_messages: Vec<ChatMessage>,
     /// List of all friends.
     friend_list: Vec<Friend>,
-    /// Player party.
-    party: Party,
-    /// Player guild.
-    guild: Guild,
     /// List of items offered in the shop.
     // TODO: Unhide this
     #[hidden_element]
@@ -183,8 +173,6 @@ pub struct ClientState {
     hotbar: Hotbar,
     /// Player inventory.
     inventory: Inventory,
-    /// Player storage (warehouse).
-    storage: Inventory,
     /// Player skill tree.
     skill_tree: SkillTree,
 
@@ -204,9 +192,9 @@ pub struct ClientState {
     /// Size of the Korangar window.
     window_size: ScreenSize,
 
-    /// Buffered attack entity. Like when attacking a target that is out of
+    /// Buffered player action. For example, attacking a target that is out of
     /// range.
-    buffered_attack_entity: Option<EntityId>,
+    buffered_action: Option<BufferedAction>,
 
     /// Map data that is viewed in the inspector. Once added to this vector they
     /// are never removed so we can ensure the user interface remains valid.
@@ -263,6 +251,8 @@ impl ClientState {
             let game_settings = GameSettings::new();
             let interface_settings = InterfaceSettings::new();
             let interface_settings_capabilities = InterfaceSettingsCapabilities::default();
+            let keybinding_settings = KeybindingSettings::new();
+            let keybinding_capabilities = KeybindingCapabilities::default();
         });
 
         time_phase!("load localization", {
@@ -339,10 +329,7 @@ impl ClientState {
             let player_name = String::new();
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
-            let storage = Inventory::default();
             let skill_tree = SkillTree::default();
-            let party = Party::default();
-            let guild = Guild::default();
         });
 
         time_phase!("create window resources", {
@@ -350,7 +337,7 @@ impl ClientState {
             let graphics_settings_capabilities = GraphicsSettingsCapabilities::default();
         });
 
-        let buffered_attack_entity = None;
+        let buffered_action = None;
 
         #[cfg(feature = "debug")]
         let debug_timer = korangar_debug::logging::Timer::new("creating debug resources");
@@ -389,6 +376,8 @@ impl ClientState {
             interface_settings_capabilities,
             graphics_settings,
             graphics_settings_capabilities,
+            keybinding_settings,
+            keybinding_capabilities,
             menu_theme,
             in_game_theme,
             world_theme,
@@ -399,10 +388,9 @@ impl ClientState {
             dialog_window,
             entities: Vec::new(),
             dead_entities: Vec::new(),
+            ground_items: Vec::new(),
             chat_messages,
             friend_list,
-            party,
-            guild,
             shop_items,
             buy_cart,
             sell_items,
@@ -410,7 +398,6 @@ impl ClientState {
             player_name,
             hotbar,
             inventory,
-            storage,
             skill_tree,
             character_servers,
             character_slots,
@@ -418,7 +405,7 @@ impl ClientState {
             switch_request,
             create_character_name,
             window_size,
-            buffered_attack_entity,
+            buffered_action,
             #[cfg(feature = "debug")]
             inspecting_maps,
             #[cfg(feature = "debug")]

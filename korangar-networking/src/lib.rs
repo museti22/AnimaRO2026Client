@@ -20,6 +20,8 @@ use ragnarok_bytes::encoding::UTF_8;
 use ragnarok_bytes::{ByteReader, ByteWriter, FromBytes};
 use ragnarok_packets::handler::{DuplicateHandlerError, HandlerResult, NoPacketCallback, PacketCallback, PacketHandler};
 use ragnarok_packets::*;
+
+mod packet_length_table;
 use server::{ServerConnectCommand, ServerConnection};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -277,6 +279,41 @@ where
         Self::handle_connection::<MapServerDisconnectedEvent>(&mut self.map_server_connection, events);
     }
 
+    /// Try to skip a packet using the packet length table.
+    /// The byte_reader must be positioned at the start of the packet (before the 2-byte header).
+    /// `data` is the full buffer slice.
+    /// Returns Some(total_packet_length) if the packet was successfully skipped, None otherwise.
+    fn try_skip_packet(byte_reader: &mut ByteReader<()>, header: PacketHeader, data: &[u8]) -> Option<usize> {
+        let packet_start = byte_reader.get_offset();
+        let length = packet_length_table::get_packet_length(header.0)?;
+
+        let total_length = if length > 0 {
+            // Fixed-length packet: length includes the 2-byte header
+            length as usize
+        } else {
+            // Variable-length packet (length == -1): bytes [offset+2..offset+4] contain the u16 length
+            let len_offset = packet_start + 2;
+            if len_offset + 2 > data.len() {
+                return None; // Not enough data to read the length field
+            }
+            let packet_len = u16::from_le_bytes([data[len_offset], data[len_offset + 1]]) as usize;
+            if packet_len < 4 {
+                return None; // Invalid variable length
+            }
+            packet_len
+        };
+
+        // Check if we have enough data in the buffer to skip the entire packet
+        if packet_start + total_length > data.len() {
+            return None; // Packet is cut off
+        }
+
+        // Advance the byte_reader past the entire packet
+        byte_reader.skip::<()>(total_length).ok()?;
+
+        Some(total_length)
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn handle_server_connection<PingPacket>(
         address: SocketAddr,
@@ -344,9 +381,6 @@ where
                                 let packet_end = cut_off_buffer_base + received_bytes;
 
                                 if packet_start == 0 {
-                                    // If the packet_start is 0, that means the packet is allegidly bigger than the MTU of a TCP packet.
-                                    // We limit the size of a packet to the MTU, to avoid getting stuck on packets that are parsed incorrectly.
-                                    // TODO: Call the packet callback?
                                     cut_off_buffer_base = 0;
                                     break;
                                 }
@@ -356,12 +390,49 @@ where
 
                                 break;
                             },
-                            // The packet callback can take care of handling these properly.
-                            HandlerResult::UnhandledPacket => {
+                            HandlerResult::UnhandledPacket(header) => {
+                                let offset = byte_reader.get_offset();
+                                let remaining_data = &data[offset..];
+                                let preview_len = remaining_data.len().min(32);
+
+                                // Try to skip the unhandled packet using the length table
+                                if let Some(skip_result) = Self::try_skip_packet(&mut byte_reader, header, data) {
+                                    eprintln!(
+                                        "[NET] UnhandledPacket at offset {}: header=0x{:04X}, skipped {} bytes, remaining={} bytes, preview={:02X?}",
+                                        offset, header.0, skip_result, remaining_data.len(), &remaining_data[..preview_len]
+                                    );
+                                    // Successfully skipped — continue parsing next packet
+                                    continue;
+                                }
+
+                                // Cannot determine packet length — stream sync lost
+                                eprintln!(
+                                    "[NET] UnhandledPacket at offset {}: header=0x{:04X}, UNKNOWN LENGTH — stream sync lost, remaining={} bytes, preview={:02X?}",
+                                    offset, header.0, remaining_data.len(), &remaining_data[..preview_len]
+                                );
                                 cut_off_buffer_base = 0;
                                 break
                             },
-                            HandlerResult::InternalError(..) => {
+                            HandlerResult::InternalError(header, ref error) => {
+                                let offset = byte_reader.get_offset();
+                                let remaining_data = &data[offset..];
+                                let preview_len = remaining_data.len().min(32);
+
+                                // Try to skip the failed packet using the length table
+                                if let Some(skip_result) = Self::try_skip_packet(&mut byte_reader, header, data) {
+                                    eprintln!(
+                                        "[NET] InternalError at offset {}: header=0x{:04X}, error={:?}, skipped {} bytes, remaining={} bytes, preview={:02X?}",
+                                        offset, header.0, error, skip_result, remaining_data.len(), &remaining_data[..preview_len]
+                                    );
+                                    // Successfully skipped — continue parsing next packet
+                                    continue;
+                                }
+
+                                // Cannot determine packet length — stream sync lost
+                                eprintln!(
+                                    "[NET] InternalError at offset {}: header=0x{:04X}, error={:?}, UNKNOWN LENGTH — stream sync lost, remaining={} bytes, preview={:02X?}",
+                                    offset, header.0, error, remaining_data.len(), &remaining_data[..preview_len]
+                                );
                                 cut_off_buffer_base = 0;
                                 break
                             },
@@ -721,6 +792,12 @@ where
         }
     }
 
+    pub fn pick_up_item(&mut self, entity_id: EntityId) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 => self.send_map_server_packet(ItemPickupRequestPacket::new(entity_id)),
+        }
+    }
+
     pub fn send_chat_message(&mut self, player_name: &str, text: &str) -> Result<(), NotConnectedError> {
         let message = format!("{} : {}", player_name, text);
 
@@ -765,18 +842,6 @@ where
         }
     }
 
-    pub fn request_item_store(&mut self, index: InventoryIndex, amount: u32) -> Result<(), NotConnectedError> {
-        match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestStoreItemPacket { index, amount }),
-        }
-    }
-
-    pub fn request_item_unstore(&mut self, index: InventoryIndex, amount: u32) -> Result<(), NotConnectedError> {
-        match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestUnstoreItemPacket { index, amount }),
-        }
-    }
-
     pub fn cast_skill(&mut self, skill_id: SkillId, skill_level: SkillLevel, entity_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(UseSkillAtIdPacket::new(skill_level, skill_id, entity_id)),
@@ -810,12 +875,6 @@ where
     pub fn stop_channeling_skill(&mut self, skill_id: SkillId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(EndUseSkillPacket::new(skill_id)),
-        }
-    }
-
-    pub fn upgrade_skill(&mut self, skill_id: SkillId) -> Result<(), NotConnectedError> {
-        match self.map_server_packet_version()? {
-            SupportedPacketVersion::_20220406 => self.send_map_server_packet(RequestLevelUpSkillPacket { skill_id }),
         }
     }
 

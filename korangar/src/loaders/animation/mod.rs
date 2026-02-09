@@ -140,11 +140,6 @@ impl AnimationLoader {
 
                         if entity_type == EntityType::Player && has_attach_point && animation_index == 1 {
                             let parent_animation_pair = &animation_pairs[0];
-
-                            if parent_animation_pair.actions.actions.len() <= action_index {
-                                continue;
-                            }
-
                             let parent_action = &parent_animation_pair.actions.actions[action_index];
                             // TODO: Precompute the size of each motion from the animation pair.
                             // Determine the minimum motion size to iterate without going out of bound.
@@ -153,11 +148,6 @@ impl AnimationLoader {
                                 continue;
                             }
                             let parent_motion = &parent_action.motions[motion_index];
-
-                            if parent_motion.attach_points.is_empty() || motion.attach_points.is_empty() {
-                                continue;
-                            }
-
                             let parent_attach_point = parent_motion.attach_points[0].position;
                             let attach_point = motion.attach_points[0].position;
                             let new_offset = -attach_point + parent_attach_point;

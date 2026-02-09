@@ -11,6 +11,37 @@ korangar/lua_files/
 korangar/lua_files.grf
 korangar/[Bb][Gg][Mm]/
 korangar/*.7z
+korangar/*.grf
+korangar/GRF DESCOMPRIMIDO/
+
+# GRF files at root
+*.grf
+
+# Logs
+*.log
+check_output.txt
+debug_folder.txt
+korangar/check_output.txt
+korangar/map_check_output*.txt
+korangar/build_error*.log
+korangar/crash.log
+panic_log.txt
+korangar_run.log
+nul
+
+# Temp / build artifacts
+tmp/
+deps/
+korangar-main.zip
+
+# AI agent dirs
+.agent/
+.gemini/
+_bmad/
+_bmad-output/
+
+# Conductor tracks (local planning)
+conductor/
 
 # Nix & direnv
 .direnv/
@@ -20,3 +51,7 @@ korangar/*.7z
 
 # Idea
 .idea/
+
+# Windows
+*.exe
+*.dll
