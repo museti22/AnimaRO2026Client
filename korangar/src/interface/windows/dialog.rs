@@ -1,5 +1,6 @@
 use std::cell::UnsafeCell;
 
+use korangar_interface::components::text_box::DefaultHandler;
 use korangar_interface::element::{Element, ElementBox, ErasedElement, StateElement};
 use korangar_interface::window::{CustomWindow, Window};
 use ragnarok_packets::EntityId;
@@ -7,9 +8,12 @@ use rust_state::{Context, Path, RustState};
 
 use super::WindowClass;
 use crate::input::InputEvent;
+use crate::loaders::OverflowBehavior;
 use crate::state::localization::LocalizationPathExt;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
+
+const MAXIMUM_NPC_INPUT_LENGTH: usize = 255;
 
 /// A small wrapper struct that serves two purposes:
 /// - Making the elements nicer to construct by putting the [`UnsafeCell::new`]
@@ -50,6 +54,8 @@ pub struct DialogWindowState {
     /// Whether or not the elements should be cleared the next time
     /// [`start`](Self::start) is called.
     clear_next: bool,
+    /// Text input buffer for NPC numeric/string input dialogs.
+    pub input_text: String,
 }
 
 impl DialogWindowState {
@@ -147,11 +153,84 @@ impl DialogWindowState {
         });
     }
 
+    /// Add a numeric input field to the dialog.
+    pub fn add_number_input(&mut self) {
+        use korangar_interface::prelude::*;
+
+        self.elements.retain(|element| !element.is_next_button);
+        self.input_text.clear();
+
+        let npc_id = self.npc_id;
+        let input_path = client_state().dialog_window().input_text();
+
+        struct NpcInputFocus;
+
+        let submit_action = move |_: &Context<ClientState>, queue: &mut EventQueue<ClientState>| {
+            queue.queue(InputEvent::SubmitNpcNumberInput { npc_id });
+        };
+
+        self.elements.push(DialogElement::new(
+            text_box! {
+                ghost_text: "Enter a number...",
+                state: input_path,
+                input_handler: DefaultHandler::<_, _, MAXIMUM_NPC_INPUT_LENGTH>::new(input_path, submit_action),
+                focus_id: NpcInputFocus,
+                overflow_behavior: OverflowBehavior::Shrink,
+            },
+            false,
+        ));
+
+        self.elements.push(DialogElement::new(
+            button! {
+                text: "Submit",
+                event: submit_action,
+            },
+            false,
+        ));
+    }
+
+    /// Add a string input field to the dialog.
+    pub fn add_string_input(&mut self) {
+        use korangar_interface::prelude::*;
+
+        self.elements.retain(|element| !element.is_next_button);
+        self.input_text.clear();
+
+        let npc_id = self.npc_id;
+        let input_path = client_state().dialog_window().input_text();
+
+        struct NpcInputFocus;
+
+        let submit_action = move |_: &Context<ClientState>, queue: &mut EventQueue<ClientState>| {
+            queue.queue(InputEvent::SubmitNpcStringInput { npc_id });
+        };
+
+        self.elements.push(DialogElement::new(
+            text_box! {
+                ghost_text: "Enter text...",
+                state: input_path,
+                input_handler: DefaultHandler::<_, _, MAXIMUM_NPC_INPUT_LENGTH>::new(input_path, submit_action),
+                focus_id: NpcInputFocus,
+                overflow_behavior: OverflowBehavior::Shrink,
+            },
+            false,
+        ));
+
+        self.elements.push(DialogElement::new(
+            button! {
+                text: "Submit",
+                event: submit_action,
+            },
+            false,
+        ));
+    }
+
     /// End the dialog.
     ///
     /// This has no side effects.
     pub fn end(&mut self) {
         self.elements.clear();
+        self.input_text.clear();
         self.clear_next = false;
     }
 }
@@ -163,6 +242,7 @@ impl Default for DialogWindowState {
             // Arguably not very clean but avoids using an Option.
             npc_id: EntityId(0),
             clear_next: false,
+            input_text: String::new(),
         }
     }
 }

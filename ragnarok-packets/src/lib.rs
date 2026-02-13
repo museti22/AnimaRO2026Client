@@ -531,7 +531,7 @@ pub struct CharacterServerLoginPacket {
 /// information.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0436)]
+#[header(0x0888)]
 pub struct MapServerLoginPacket {
     pub account_id: AccountId,
     pub character_id: CharacterId,
@@ -793,7 +793,7 @@ pub struct MessageTablePacket {
 /// display name.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0368)]
+#[header(0x0898)]
 pub struct RequestDetailsPacket {
     pub entity_id: EntityId,
 }
@@ -1564,7 +1564,7 @@ pub enum Action {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0437)]
+#[header(0x088E)]
 pub struct RequestActionPacket {
     pub npc_id: EntityId,
     pub action: Action,
@@ -1572,14 +1572,14 @@ pub struct RequestActionPacket {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0362)]
+#[header(0x0933)]
 pub struct ItemPickupRequestPacket {
     pub entity_id: EntityId,
 }
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x00F3)]
+#[header(0x008C)]
 #[variable_length]
 pub struct GlobalMessagePacket {
     #[length_remaining_off_by_one]
@@ -1648,14 +1648,14 @@ pub struct DamagePacket3 {
     pub source_entity_id: EntityId,
     pub destination_entity_id: EntityId,
     pub client_tick: ClientTick,
-    pub attack_duration: u32,
-    pub damage_delay: u32,
-    pub damage_amount: u32,
-    pub is_special_damage: u8,
+    pub attack_duration: i32,
+    pub damage_delay: i32,
+    pub damage_amount: i32,
+    pub is_special_damage: i8,
     pub number_of_hits: u16,
     pub damage_type: DamageType,
     /// Assassin dual wield damage.
-    pub damage_amount_2: u32,
+    pub damage_amount_2: i32,
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
@@ -1668,7 +1668,7 @@ pub struct ServerTickPacket {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0360)]
+#[header(0x0363)]
 #[ping]
 pub struct RequestServerTickPacket {
     pub client_tick: ClientTick,
@@ -1857,35 +1857,79 @@ pub struct EntityAppear2Packet {
     pub name: String,
 }
 
-#[derive(Clone, Copy, Debug, ByteConvertable, FixedByteSize)]
+/// Skill targeting bitmask from the `inf` field in ZC_SKILLINFO_LIST.
+/// This is a bitmask, NOT an enum — skills can have combined flags
+/// (e.g. AL_HEAL has inf=0x06 which is SELF|SUPPORT).
+///
+/// For PACKETVER 20220406 (pre-renewal, MAIN), the skill entry is 15 bytes.
+#[derive(Clone, Copy, Debug, ByteConvertable, FixedByteSize, PartialEq, Eq)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[numeric_type(u32)]
-pub enum SkillType {
-    #[numeric_value(0)]
-    Passive,
-    #[numeric_value(1)]
-    Attack,
-    #[numeric_value(2)]
-    SelfCast,
-    #[numeric_value(4)]
-    Support,
-    #[numeric_value(16)]
-    Ground,
-    #[numeric_value(32)]
-    Trap,
+pub struct SkillInf(pub u32);
+
+impl SkillInf {
+    pub const INF_ATTACK_SKILL: u32 = 0x01;
+    pub const INF_SELF_SKILL: u32 = 0x02;
+    pub const INF_SUPPORT_SKILL: u32 = 0x04;
+    pub const INF_GROUND_SKILL: u32 = 0x10;
+    pub const INF_TRAP_SKILL: u32 = 0x20;
+
+    /// Passive skill — inf == 0, no targeting needed.
+    pub fn is_passive(&self) -> bool {
+        self.0 == 0
+    }
+
+    /// Attack skill — show cursor to select enemy.
+    pub fn is_attack(&self) -> bool {
+        self.0 & Self::INF_ATTACK_SKILL != 0
+    }
+
+    /// Self-only skill (inf has SELF bit but NOT SUPPORT or ATTACK) — auto-cast on self.
+    pub fn is_self_only(&self) -> bool {
+        self.0 & Self::INF_SELF_SKILL != 0
+            && self.0 & Self::INF_SUPPORT_SKILL == 0
+            && self.0 & Self::INF_ATTACK_SKILL == 0
+            && self.0 & Self::INF_GROUND_SKILL == 0
+    }
+
+    /// Support skill — show cursor to select ally or self.
+    pub fn is_support(&self) -> bool {
+        self.0 & Self::INF_SUPPORT_SKILL != 0
+    }
+
+    /// Ground targeting skill — show cursor to select ground cell.
+    pub fn is_ground(&self) -> bool {
+        self.0 & Self::INF_GROUND_SKILL != 0
+    }
+
+    /// Trap skill — ground targeting variant.
+    pub fn is_trap(&self) -> bool {
+        self.0 & Self::INF_TRAP_SKILL != 0
+    }
+
+    /// Whether this skill needs a target (entity or ground).
+    pub fn needs_target(&self) -> bool {
+        !self.is_passive() && !self.is_self_only()
+    }
 }
 
+/// Kept as a type alias for backward compatibility in imports.
+pub type SkillType = SkillInf;
+
+/// Skill information entry from ZC_SKILLINFO_LIST (0x010F).
+/// Pre-renewal (PACKETVER_MAIN_NUM 20220406, NO RE): 15 bytes per entry.
 #[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct SkillInformation {
     pub skill_id: SkillId,
-    pub skill_type: SkillType,
+    /// Targeting bitmask — see [`SkillInf`] for bit definitions.
+    pub skill_inf: SkillInf,
     pub skill_level: SkillLevel,
     pub spell_point_cost: u16,
     pub attack_range: AttackRange,
-    #[length(24)]
-    pub skill_name: String,
-    pub upgraded: u8,
+    /// Whether the skill can be leveled up.
+    pub upgradable: u8,
+    /// Padding / unused (pre-renewal has no level2 field, but 15-byte alignment requires 2 extra bytes).
+    pub _padding: u16,
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket)]
@@ -3383,7 +3427,7 @@ pub enum ExperienceSource {
 #[header(0x0ACC)]
 pub struct DisplayGainedExperiencePacket {
     pub account_id: AccountId,
-    pub amount: u64,
+    pub amount: i64,
     pub experience_type: ExperienceType,
     pub experience_source: ExperienceSource,
 }
@@ -3816,7 +3860,7 @@ pub struct DisconnectResponsePacket {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0438)]
+#[header(0x089B)]
 pub struct UseSkillAtIdPacket {
     pub skill_level: SkillLevel,
     pub skill_id: SkillId,
@@ -3825,13 +3869,11 @@ pub struct UseSkillAtIdPacket {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0AF4)]
+#[header(0x0959)]
 pub struct UseSkillOnGroundPacket {
     pub skill_level: SkillLevel,
     pub skill_id: SkillId,
     pub target_position: TilePosition,
-    #[new_default]
-    pub unused: u8,
 }
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
@@ -4512,6 +4554,33 @@ pub struct StatusChange2Packet {
     pub val3: u32,
 }
 
+/// CZ_USE_ITEM (0x00A7) - Client uses an item from inventory.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00A7)]
+pub struct UseItemPacket {
+    pub index: InventoryIndex,
+    pub target_id: AccountId,
+}
+
+/// CZ_ITEM_THROW (0x0438) - Client drops an item on the ground.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0438)]
+pub struct ItemDropPacket {
+    pub index: InventoryIndex,
+    pub amount: u16,
+}
+
+/// CZ_CHANGE_DIRECTION (0x0897) - Client changes facing direction.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0897)]
+pub struct ChangeDirectionRequestPacket {
+    pub head_direction: u16,
+    pub direction: u8,
+}
+
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x00AF)]
@@ -4550,6 +4619,26 @@ pub struct NpcNumberInputPacket {
 #[header(0x01D4)]
 pub struct NpcStringInputPacket {
     pub npc_id: EntityId,
+}
+
+/// CZ_INPUT_EDITDLG (0x0143) - Client sends numeric input to NPC.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0143)]
+pub struct NpcNumberInputResponsePacket {
+    pub npc_id: EntityId,
+    pub value: i32,
+}
+
+/// CZ_INPUT_EDITDLGSTR - Client sends string input to NPC.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01D5)]
+#[variable_length]
+pub struct NpcStringInputResponsePacket {
+    pub npc_id: EntityId,
+    #[length_remaining]
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
@@ -4678,4 +4767,328 @@ pub struct DeleteItemFromCartPacket {
 #[header(0x08D6)]
 pub struct ClearDialogPacket {
     pub npc_id: EntityId,
+}
+
+/// CZ_BLOCKING_PLAY_CANCEL - Client cancels blocking play state.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0447)]
+pub struct BlockingPlayCancelPacket {}
+
+/// ZC_PROPERTY_PET - Server sends pet properties/stats.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A2)]
+pub struct PropertyPetPacket {
+    #[length(24)]
+    pub name: String,
+    pub renamed: u8,
+    pub level: u16,
+    pub hungry: u16,
+    pub friendly: u16,
+    pub accessory: u16,
+    pub class: u16,
+}
+
+/// ZC_FEED_PET - Server notifies client about pet feeding result.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A3)]
+pub struct FeedPetPacket {
+    pub result: u8,
+    pub item_id: u32,
+}
+
+/// ZC_CHANGESTATE_PET - Server notifies pet state change.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A4)]
+pub struct ChangeStatePetPacket {
+    pub pet_type: u8,
+    pub id: u32,
+    pub data: u32,
+}
+
+/// ZC_PET_ACT - Server notifies pet emotion/action.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01AA)]
+pub struct PetActPacket {
+    pub gid: EntityId,
+    pub data: u32,
+}
+
+/// CZ_COMMAND_PET (0x01A1) - Client sends pet command (feed, performance, etc.).
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A1)]
+pub struct PetCommandPacket {
+    pub action: u8,
+}
+
+/// CZ_SELECT_PETEGG (0x01A7) - Client selects a pet egg to hatch.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A7)]
+pub struct SelectPetEggPacket {
+    pub index: u16,
+}
+
+/// CZ_PARTY_JOIN_REQ - Client invites player to party.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x086D)]
+pub struct PartyJoinRequestPacket {
+    #[length(24)]
+    pub name: String,
+}
+
+/// CZ_JOIN_GROUP - Client responds to party invite.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00FF)]
+pub struct PartyJoinResponsePacket {
+    pub party_id: PartyId,
+    pub flag: u32,
+}
+
+/// CZ_REQNAME_BYGID - Client requests character name by GID.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x094C)]
+pub struct RequestNameByGidPacket {
+    pub character_id: CharacterId,
+}
+
+/// CZ_MOVE_ITEM_FROM_BODY_TO_STORE - Client moves item to storage.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x08AC)]
+pub struct MoveItemToStoragePacket {
+    pub index: u16,
+    pub amount: u32,
+}
+
+/// CZ_MOVE_ITEM_FROM_STORE_TO_BODY - Client moves item from storage.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0874)]
+pub struct MoveItemFromStoragePacket {
+    pub index: u16,
+    pub amount: u32,
+}
+
+/// CZ_CLOSE_STORE - Client closes storage.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00F7)]
+pub struct CloseStoragePacket {}
+
+// ===================== TRADE PACKETS =====================
+
+/// CZ_REQ_EXCHANGE_ITEM (0x00E4) - Client initiates a trade with another player.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00E4)]
+pub struct TradeRequestPacket {
+    pub target_id: EntityId,
+}
+
+/// CZ_ACK_EXCHANGE_ITEM (0x00E6) - Client accepts or rejects trade.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00E6)]
+pub struct TradeResponsePacket {
+    /// 3 = accept, 4 = reject
+    pub result: u8,
+}
+
+/// CZ_CONCLUDE_EXCHANGE_ITEM (0x00EB) - Client locks their side of the trade.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00EB)]
+pub struct TradeLockPacket {}
+
+/// CZ_CANCEL_EXCHANGE_ITEM (0x00ED) - Client cancels the trade.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00ED)]
+pub struct TradeCancelPacket {}
+
+/// CZ_EXEC_EXCHANGE_ITEM (0x00EF) - Client commits the final trade.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00EF)]
+pub struct TradeCommitPacket {}
+
+/// ZC_REQ_EXCHANGE_ITEM (0x01F4) - Server notifies another player wants to trade.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01F4)]
+pub struct TradeRequestReceivedPacket {
+    #[length(24)]
+    pub requester_name: String,
+    pub base_level: u16,
+    pub account_id: AccountId,
+}
+
+/// ZC_ACK_EXCHANGE_ITEM (0x01F5) - Server confirms trade response.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01F5)]
+pub struct TradeResponseReceivedPacket {
+    /// 0=self too far, 1=partner too far, 2=partner busy, 3=accept, 4=cancel,
+    /// 5=partner too heavy
+    pub result: u8,
+    /// Character ID (u32) + padding for total = 9 bytes
+    pub character_id: CharacterId,
+    pub base_level: u16,
+}
+
+/// ZC_ADD_EXCHANGE_ITEM (0x0B42) - Item added to the trade window.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B42)]
+pub struct TradeItemAddedPacket {
+    pub amount: u32,
+    pub item_id: u32,
+    pub item_type: u8,
+    pub identified: u8,
+    pub damaged: u8,
+    pub refine: u8,
+    pub card1: u32,
+    pub card2: u32,
+    pub card3: u32,
+    pub card4: u32,
+    /// 5 item options: [index(i16) + value(i16) + param(u8)] × 5 = 25 bytes
+    pub option1_index: i16,
+    pub option1_value: i16,
+    pub option1_param: u8,
+    pub option2_index: i16,
+    pub option2_value: i16,
+    pub option2_param: u8,
+    pub option3_index: i16,
+    pub option3_value: i16,
+    pub option3_param: u8,
+    pub option4_index: i16,
+    pub option4_value: i16,
+    pub option4_param: u8,
+    pub option5_index: i16,
+    pub option5_value: i16,
+    pub option5_param: u8,
+    pub grade: u8,
+    pub location: u32,
+}
+
+/// ZC_CONCLUDE_EXCHANGE (0x00EC) - Both sides confirmed.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00EC)]
+pub struct TradeConcludedPacket {
+    /// 0 = self locked, 1 = partner locked
+    pub who: u8,
+}
+
+/// ZC_CANCEL_EXCHANGE (0x00EE) - Trade cancelled.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00EE)]
+pub struct TradeCancelledPacket {}
+
+/// ZC_EXEC_EXCHANGE (0x00F0) - Trade completed.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00F0)]
+pub struct TradeCompletedPacket {
+    /// 0 = success, 1 = failure
+    pub result: u8,
+}
+
+/// ZC_WHISPER (0x09DE) - Server sends a whisper message to the client.
+/// Format: header(2) + len(2) + name[24](4) + isAdmin(u32)(28) + message(32+)
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09DE)]
+#[variable_length]
+pub struct WhisperReceivePacket {
+    #[length(24)]
+    pub sender_name: String,
+    pub is_admin: u32,
+    #[length_remaining]
+    pub message: String,
+}
+
+/// ZC_ACK_WHISPER (0x09DF) - Server acknowledges whisper sent by client.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x09DF)]
+pub struct WhisperAckPacket {
+    pub result: u8,
+    pub character_id: CharacterId,
+}
+
+/// CZ_WHISPER (0x0096) - Client sends a whisper message.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0096)]
+#[variable_length]
+pub struct WhisperSendPacket {
+    #[length(24)]
+    pub receiver_name: String,
+    #[length_remaining]
+    pub message: String,
+}
+
+/// CZ_REQ_EMOTION (0x00BF) - Client requests to display an emotion.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00BF)]
+pub struct RequestEmotionPacket {
+    pub emotion: u8,
+}
+
+/// ZC_NOTIFY_STOREITEM_COUNTINFO (0x00F2) - Storage capacity info (opens storage).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00F2)]
+pub struct StorageItemCountPacket {
+    pub current_count: u16,
+    pub maximum_count: u16,
+}
+
+/// ZC_CLOSE_STORE (0x00F8) - Server tells client storage is closed.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00F8)]
+pub struct CloseStoragePacket2 {}
+
+/// ZC_NOTIFY_CHAT_PARTY (0x0109) - Party chat message.
+/// Format: header(2) + len(2) + account_id(4) + message(variable)
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0109)]
+#[variable_length]
+pub struct PartyChatPacket {
+    pub account_id: AccountId,
+    #[length_remaining]
+    pub message: String,
+}
+
+/// ZC_GUILD_CHAT (0x017F) - Guild chat message.
+/// Format: header(2) + len(2) + message(variable)
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x017F)]
+#[variable_length]
+pub struct GuildChatPacket {
+    #[length_remaining]
+    pub message: String,
+}
+
+/// CZ_UPGRADESKILL (0x0112) - Client requests to increase a skill level.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0112)]
+pub struct SkillUpPacket {
+    pub skill_id: SkillId,
 }

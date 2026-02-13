@@ -222,6 +222,54 @@ where
                     }
                 )
             },
+            split! {
+                children: (
+                    text! {
+                        text: "Party",
+                        overflow_behavior: OverflowBehavior::Shrink,
+                    },
+                    drop_down! {
+                        selected: self.settings_path.toggle_party(),
+                        options: self.capabilities_path.available_keys(),
+                    }
+                )
+            },
+            split! {
+                children: (
+                    text! {
+                        text: "Guild",
+                        overflow_behavior: OverflowBehavior::Shrink,
+                    },
+                    drop_down! {
+                        selected: self.settings_path.toggle_guild(),
+                        options: self.capabilities_path.available_keys(),
+                    }
+                )
+            },
+            split! {
+                children: (
+                    text! {
+                        text: "Quest",
+                        overflow_behavior: OverflowBehavior::Shrink,
+                    },
+                    drop_down! {
+                        selected: self.settings_path.toggle_quest(),
+                        options: self.capabilities_path.available_keys(),
+                    }
+                )
+            },
+            split! {
+                children: (
+                    text! {
+                        text: "Minimap",
+                        overflow_behavior: OverflowBehavior::Shrink,
+                    },
+                    drop_down! {
+                        selected: self.settings_path.toggle_minimap(),
+                        options: self.capabilities_path.available_keys(),
+                    }
+                )
+            },
         );
 
         window! {

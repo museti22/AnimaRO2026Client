@@ -9,7 +9,7 @@ use crate::graphics::Color;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::state::theme::InterfaceThemeType;
-use crate::state::{ClientState, ClientStatePathExt, ClientStateEntityExt};
+use crate::state::{ClientState, ClientStatePathExt};
 use crate::state::client_state;
 use crate::world::EntityType;
 
@@ -52,7 +52,7 @@ impl Element<ClientState> for MinimapElement {
     ) {
         let entities_path = client_state().entities();
         let entities = state.get(&entities_path);
-        let player_entity_id = state.get_player_entity_id();
+        let player_entity_id = entities.first().map(|e| e.get_entity_id());
         let map_w = self.map_width as f32;
         let map_h = self.map_height as f32;
 

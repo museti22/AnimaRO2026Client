@@ -78,6 +78,10 @@ pub enum NetworkEvent {
     PlayerStandUp {
         entity_id: EntityId,
     },
+    /// Make a player sit down.
+    PlayerSitDown {
+        entity_id: EntityId,
+    },
     /// Add an entity to the list of entities that the client is aware of.
     AddEntity {
         entity_data: EntityData,
@@ -263,6 +267,246 @@ pub enum NetworkEvent {
         target_position: TilePosition,
         player_position: TilePosition,
         attack_range: AttackRange,
+    },
+    /// An entity stopped moving at a specific position.
+    EntityStopMove {
+        entity_id: EntityId,
+        position: TilePosition,
+    },
+    /// An entity changed its facing direction.
+    EntityChangeDirection {
+        entity_id: EntityId,
+        direction: u8,
+    },
+    /// NPC requests numeric input from the player.
+    NpcNumberInput {
+        npc_id: EntityId,
+    },
+    /// NPC requests string input from the player.
+    NpcStringInput {
+        npc_id: EntityId,
+    },
+    /// Party member HP update.
+    PartyMemberHP {
+        account_id: AccountId,
+        health_points: i32,
+        maximum_health_points: i32,
+    },
+    /// Party member position on the map.
+    PartyMemberPosition {
+        account_id: AccountId,
+        x: i16,
+        y: i16,
+    },
+    /// Party member left or was kicked.
+    PartyMemberDeleted {
+        account_id: AccountId,
+        name: String,
+        result: i8,
+    },
+    /// Entity emote (Alt+1-9).
+    Emotion {
+        entity_id: EntityId,
+        emotion: u8,
+    },
+    /// Skill cast animation started.
+    SkillCasting {
+        source_entity_id: EntityId,
+        target_entity_id: EntityId,
+        position: TilePosition,
+        skill_id: SkillId,
+        cast_time: u32,
+    },
+    /// Skill cast was cancelled.
+    SkillCastCancel {
+        entity_id: EntityId,
+    },
+    /// NPC dialog should be closed.
+    ClearDialog {
+        npc_id: EntityId,
+    },
+    /// Status effect applied/removed on entity.
+    StatusChange {
+        entity_id: EntityId,
+        status_index: u16,
+        state: u8,
+        remaining_in_milliseconds: u32,
+    },
+    /// Player gained experience.
+    GainedExperience {
+        amount: i64,
+        is_base_experience: bool,
+    },
+    /// Skill cooldown started.
+    SkillCooldown {
+        skill_id: SkillId,
+        until: ClientTick,
+    },
+    /// Player healed themselves (HP or SP).
+    PlayerHealEffect {
+        is_spell_points: bool,
+        heal_amount: u32,
+    },
+    /// A special effect on an entity.
+    SpecialEffect {
+        entity_id: EntityId,
+        effect_id: EffectId,
+    },
+    /// Party invite received.
+    PartyInvite {
+        party_id: PartyId,
+        party_name: String,
+    },
+    /// A stat parameter changed (zeny, weight, SP, etc.).
+    ParameterChange {
+        variable_id: u16,
+        value: u32,
+    },
+    /// Skill dealt damage to a target.
+    SkillDamageEffect {
+        skill_id: u16,
+        source_entity_id: EntityId,
+        destination_entity_id: EntityId,
+        damage: i32,
+        div: i16,
+    },
+    /// Another player wants to trade.
+    TradeRequested {
+        requester_name: String,
+        account_id: AccountId,
+        base_level: u16,
+    },
+    /// Server responded to a trade request.
+    TradeResponse {
+        result: u8,
+    },
+    /// An item was added to the trade window.
+    TradeItemAdded {
+        item_id: u32,
+        amount: u32,
+        item_type: u8,
+        identified: bool,
+        refine: u8,
+        /// 0 = player side, nonzero = partner side
+        location: u32,
+    },
+    /// A side of the trade was locked.
+    TradeConcluded {
+        /// 0 = self locked, 1 = partner locked
+        who: u8,
+    },
+    /// Trade was cancelled.
+    TradeCancelled,
+    /// Trade was completed.
+    TradeCompleted {
+        /// 0 = success, 1 = failure
+        result: u8,
+    },
+    /// Cart item count/weight info.
+    CartInfo {
+        current_count: i16,
+        maximum_count: i16,
+        current_weight: i32,
+        maximum_weight: i32,
+    },
+    /// Pet properties updated.
+    PetInfo {
+        name: String,
+        renamed: bool,
+        level: u16,
+        hungry: u16,
+        friendly: u16,
+        accessory: u16,
+        class: u16,
+    },
+    /// Pet state changed (e.g. pet spawned/despawned).
+    PetStateChange {
+        pet_type: u8,
+        id: u32,
+        data: u32,
+    },
+    /// Pet performed an action/emotion.
+    PetAction {
+        entity_id: EntityId,
+        data: u32,
+    },
+    /// Party member job/level info.
+    PartyMemberInfo {
+        account_id: AccountId,
+        job: i16,
+        level: i16,
+    },
+    /// Action failure notification (e.g. can't reach, weight limit).
+    ActionFailure {
+        action_type: u16,
+    },
+    /// Attack range updated.
+    AttackRangeUpdate {
+        attack_range: AttackRange,
+    },
+    /// Map type information.
+    MapInfo {
+        info_type: i16,
+    },
+    /// Cart item removed.
+    CartItemRemoved {
+        index: i16,
+        amount: i32,
+    },
+    /// Stat allocation response.
+    StatUpResult {
+        stat_type: u16,
+        success: bool,
+        value: u8,
+    },
+    /// Ground skill placed (visual effect).
+    GroundSkillPlaced {
+        skill_id: SkillId,
+        entity_id: EntityId,
+        position: TilePosition,
+    },
+    /// Friend online/offline status.
+    FriendOnlineStatus {
+        account_id: AccountId,
+        character_id: CharacterId,
+        is_online: bool,
+        name: String,
+    },
+    /// Full quest list received from server.
+    QuestList {
+        quests: Vec<(u32, bool)>,
+    },
+    /// A new quest was added.
+    QuestAdded {
+        quest_id: u32,
+        active: bool,
+    },
+    /// A quest was removed/completed.
+    QuestRemoved {
+        quest_id: u32,
+    },
+    /// New mail notification.
+    NewMailStatus {
+        has_new_mail: bool,
+    },
+    /// Server forced position change (knockback).
+    ServerMove {
+        position: TilePosition,
+    },
+    /// Server refused map entry.
+    RefusedEntry {
+        error_code: u8,
+    },
+    /// Storage opened by server (Kafra).
+    StorageOpened {
+        current_count: u16,
+        maximum_count: u16,
+    },
+    /// Storage closed by server.
+    StorageClosed,
+    /// Storage items received (inventory_type == 2 in item list packets).
+    StorageItemList {
+        items: Vec<InventoryItem<NoMetadata>>,
     },
 }
 

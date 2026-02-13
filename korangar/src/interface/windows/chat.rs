@@ -61,14 +61,13 @@ where
             .map(|chat_message| {
                 let color = match chat_message.color {
                     MessageColor::Rgb { red, green, blue } => Color::rgb_u8(red, green, blue),
-                    // TODO: Make the color right.
-                    MessageColor::Broadcast => Color::monochrome_u8(255),
-                    // TODO: Make the color right.
-                    MessageColor::Server => Color::monochrome_u8(255),
-                    // TODO: Make the color right.
-                    MessageColor::Error => Color::monochrome_u8(255),
-                    // TODO: Make the color right.
-                    MessageColor::Information => Color::monochrome_u8(255),
+                    MessageColor::Broadcast => Color::rgb_u8(255, 255, 100),
+                    MessageColor::Server => Color::rgb_u8(255, 255, 200),
+                    MessageColor::Error => Color::rgb_u8(255, 80, 80),
+                    MessageColor::Information => Color::rgb_u8(200, 200, 255),
+                    MessageColor::Whisper => Color::rgb_u8(255, 100, 200),
+                    MessageColor::Party => Color::rgb_u8(100, 255, 100),
+                    MessageColor::Guild => Color::rgb_u8(180, 255, 180),
                 };
 
                 let (size, _) = resolver.get_text_dimensions(
@@ -114,14 +113,13 @@ where
             .for_each(|(chat_message, message_height)| {
                 let color = match chat_message.color {
                     MessageColor::Rgb { red, green, blue } => Color::rgb_u8(red, green, blue),
-                    // TODO: Make the color right.
-                    MessageColor::Broadcast => Color::monochrome_u8(255),
-                    // TODO: Make the color right.
-                    MessageColor::Server => Color::monochrome_u8(255),
-                    // TODO: Make the color right.
-                    MessageColor::Error => Color::monochrome_u8(255),
-                    // TODO: Make the color right.
-                    MessageColor::Information => Color::monochrome_u8(255),
+                    MessageColor::Broadcast => Color::rgb_u8(255, 255, 100),
+                    MessageColor::Server => Color::rgb_u8(255, 255, 200),
+                    MessageColor::Error => Color::rgb_u8(255, 80, 80),
+                    MessageColor::Information => Color::rgb_u8(200, 200, 255),
+                    MessageColor::Whisper => Color::rgb_u8(255, 100, 200),
+                    MessageColor::Party => Color::rgb_u8(100, 255, 100),
+                    MessageColor::Guild => Color::rgb_u8(180, 255, 180),
                 };
 
                 if offset != 0.0 {

@@ -3,6 +3,7 @@ use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{BaseLayoutInfo, Element};
 use korangar_interface::event::{ClickHandler, DropHandler, Event, EventQueue};
 use korangar_interface::layout::area::Area;
+use korangar_interface::layout::tooltip::TooltipExt;
 use korangar_interface::layout::{MouseButton, Resolver, WindowLayout};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_networking::{InventoryItem, InventoryItemDetails};
@@ -61,6 +62,28 @@ where
     }
 }
 
+/// Handler for double-clicking an item (use item from inventory).
+struct ItemUseHandler<P> {
+    item_path: P,
+    source: ItemSource,
+}
+
+impl<P> ClickHandler<ClientState> for ItemUseHandler<P>
+where
+    P: Path<ClientState, InventoryItem<ResourceMetadata>, false>,
+{
+    fn handle_click(&self, state: &Context<ClientState>, queue: &mut EventQueue<ClientState>) {
+        if !matches!(self.source, ItemSource::Inventory) {
+            return;
+        }
+        if let Some(item) = state.try_get(&self.item_path) {
+            queue.queue(InputEvent::UseItem {
+                item_index: item.index,
+            });
+        }
+    }
+}
+
 impl<P> DropHandler<ClientState> for ItemBoxHandler<P>
 where
     P: Path<ClientState, InventoryItem<ResourceMetadata>, false>,
@@ -82,6 +105,7 @@ where
 pub struct ItemBox<A> {
     item_path: A,
     handler: ItemBoxHandler<A>,
+    item_use_handler: ItemUseHandler<A>,
     amount_display: AmountDisplay,
 }
 
@@ -96,6 +120,7 @@ where
         Self {
             item_path,
             handler: ItemBoxHandler::new(item_path, source),
+            item_use_handler: ItemUseHandler { item_path, source },
             amount_display: AmountDisplay::default(),
         }
     }
@@ -178,6 +203,10 @@ where
 
             if is_hovered {
                 layout.register_click_handler(MouseButton::Left, &self.handler);
+                layout.register_click_handler(MouseButton::DoubleLeft, &self.item_use_handler);
+
+                struct ItemBoxTooltipId;
+                layout.add_tooltip(&item.metadata.name, ItemBoxTooltipId.tooltip_id());
             }
 
             if matches!(item.details, InventoryItemDetails::Regular { .. }) {

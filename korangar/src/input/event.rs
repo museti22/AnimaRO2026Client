@@ -5,8 +5,8 @@ use korangar_debug::profiling::FrameMeasurement;
 use korangar_interface::event::{ClickHandler, Event, EventQueue};
 use korangar_networking::{InventoryItem, ShopItem};
 use ragnarok_packets::{
-    AccountId, BuyOrSellOption, CharacterId, CharacterServerInformation, EntityId, HotbarSlot, ShopId, SoldItemInformation, StatUpType,
-    TilePosition,
+    AccountId, BuyOrSellOption, CharacterId, CharacterServerInformation, EntityId, HotbarSlot, InventoryIndex, PartyId, ShopId, SkillId,
+    SoldItemInformation, StatUpType, TilePosition,
 };
 use rust_state::Context;
 
@@ -75,6 +75,22 @@ pub enum InputEvent {
     ToggleAudioSettingsWindow,
     /// Open or close the friend list window. Only works while playing.
     ToggleFriendListWindow,
+    /// Open or close the party window. Only works while playing.
+    TogglePartyWindow,
+    /// Open or close the guild window. Only works while playing.
+    ToggleGuildWindow,
+    /// Open or close the quest log window. Only works while playing.
+    ToggleQuestWindow,
+    /// Open or close the minimap window. Only works while playing.
+    ToggleMinimapWindow,
+    /// Open or close the pet/homunculus window. Only works while playing.
+    TogglePetWindow,
+    /// Open or close the mail window. Only works while playing.
+    ToggleMailWindow,
+    /// Open or close the storage window. Only works while playing.
+    ToggleStorageWindow,
+    /// Open or close the status effects (buff/debuff) window. Only works while playing.
+    ToggleStatusEffectsWindow,
     /// Open or close the keybinding settings window.
     ToggleKeybindingSettingsWindow,
     /// Close the most recently opened or clicked closable window.
@@ -148,6 +164,16 @@ pub enum InputEvent {
         /// Id of the option.
         option: i8,
     },
+    /// Submit numeric input to an NPC dialog.
+    SubmitNpcNumberInput {
+        /// Id of the NPC the player is in a dialog with.
+        npc_id: EntityId,
+    },
+    /// Submit string input to an NPC dialog.
+    SubmitNpcStringInput {
+        /// Id of the NPC the player is in a dialog with.
+        npc_id: EntityId,
+    },
     /// Move an item in the user interface.
     MoveItem {
         /// Source of the move.
@@ -165,6 +191,23 @@ pub enum InputEvent {
         destination: SkillSource,
         /// Skill to move.
         skill: Skill,
+    },
+    /// Use an item from inventory.
+    UseItem {
+        /// Index of the item in inventory.
+        item_index: InventoryIndex,
+    },
+    /// Drop an item from inventory.
+    DropItem {
+        /// Index of the item in inventory.
+        item_index: InventoryIndex,
+        /// Amount to drop.
+        amount: u16,
+    },
+    /// Upgrade a skill (spend skill point).
+    SkillUp {
+        /// Id of the skill to upgrade.
+        skill_id: SkillId,
     },
     /// Cast a skill.
     CastSkill {
@@ -223,6 +266,38 @@ pub enum InputEvent {
     },
     /// Up a stat.
     StatUp { stat_type: StatUpType },
+    /// Accept a party invite.
+    AcceptPartyInvite {
+        /// Id of the party.
+        party_id: PartyId,
+    },
+    /// Reject a party invite.
+    RejectPartyInvite {
+        /// Id of the party.
+        party_id: PartyId,
+    },
+    /// Toggle sit/stand.
+    ToggleSit,
+    /// Send an emote (Alt+1-9).
+    SendEmotion {
+        /// Emotion index (0-based).
+        emotion: u8,
+    },
+    /// Feed the active pet.
+    FeedPet,
+    /// Feed the active homunculus.
+    FeedHomunculus,
+    /// Respond to a trade request.
+    RespondToTrade {
+        /// Whether to accept or reject.
+        accept: bool,
+    },
+    /// Cancel the current trade.
+    TradeCancel,
+    /// Lock (conclude) the player's side of the trade.
+    TradeLock,
+    /// Complete the trade (commit after both sides locked).
+    TradeComplete,
     /// Reload the language from disk.
     #[cfg(feature = "debug")]
     ReloadLanguage,

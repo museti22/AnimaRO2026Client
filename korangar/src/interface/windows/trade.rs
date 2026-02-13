@@ -37,7 +37,7 @@ impl TradeItemsElement {
                 } else {
                     String::new()
                 };
-                let ident = if !item.is_identified { " (unid)" } else { "" };
+                let ident = if !item.identified { " (unid)" } else { "" };
                 lines.push(format!("  {}{} x{}{}", refine, item.name, item.amount, ident));
             }
             if trade_state.player_zeny > 0 {
@@ -57,7 +57,7 @@ impl TradeItemsElement {
                 } else {
                     String::new()
                 };
-                let ident = if !item.is_identified { " (unid)" } else { "" };
+                let ident = if !item.identified { " (unid)" } else { "" };
                 lines.push(format!("  {}{} x{}{}", refine, item.name, item.amount, ident));
             }
             if trade_state.partner_zeny > 0 {

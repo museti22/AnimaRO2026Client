@@ -191,7 +191,31 @@ where
         text: packet.message,
         color: MessageColor::Server,
     })?;
-    packet_handler.register_noop::<MessageTablePacket>()?;
+    packet_handler.register(|packet: MessageTablePacket| -> NetworkEventList {
+        let text = match packet.message_id {
+            0 => "Your HP is fully restored.",
+            1 => "Your SP is fully restored.",
+            2 => "The storage is full.",
+            3 => "Unable to use that item.",
+            4 => "You can't use this item from your current location.",
+            5 => "This item cannot be dropped.",
+            6 => "This item cannot be traded.",
+            7 => "This item cannot be stored.",
+            28 => "You are overweight.",
+            43 => "Your session has expired.",
+            44 => "Another user is using this account.",
+            292 => "You cannot attack in this area.",
+            1484 => "Please wait a moment.",
+            _ => "",
+        };
+        if text.is_empty() {
+            return NoNetworkEvents.into();
+        }
+        NetworkEvent::ChatMessage {
+            text: text.to_string(),
+            color: MessageColor::Server,
+        }.into()
+    })?;
     packet_handler.register(|packet: EntityMessagePacket| {
         // Drop the alpha channel because it might be 0.
         let color = MessageColor::Rgb {
@@ -204,7 +228,10 @@ where
             color,
         }
     })?;
-    packet_handler.register_noop::<DisplayEmotionPacket>()?;
+    packet_handler.register(|packet: DisplayEmotionPacket| NetworkEvent::Emotion {
+        entity_id: packet.entity_id,
+        emotion: packet.emotion,
+    })?;
     packet_handler.register(|packet: EntityMovePacket| {
         let EntityMovePacket {
             entity_id,
@@ -221,7 +248,10 @@ where
             starting_timestamp,
         }
     })?;
-    packet_handler.register_noop::<EntityStopMovePacket>()?;
+    packet_handler.register(|packet: EntityStopMovePacket| NetworkEvent::EntityStopMove {
+        entity_id: packet.entity_id,
+        position: packet.position,
+    })?;
     packet_handler.register(|packet: PlayerMovePacket| {
         let PlayerMovePacket {
             starting_timestamp,
@@ -314,11 +344,18 @@ where
         let UpdateStatPacket3 { stat_type } = packet;
         NetworkEvent::UpdateStat { stat_type }
     })?;
-    packet_handler.register_noop::<UpdateAttackRangePacket>()?;
-    packet_handler.register_noop::<NewMailStatusPacket>()?;
+    packet_handler.register(|packet: UpdateAttackRangePacket| NetworkEvent::AttackRangeUpdate {
+        attack_range: packet.attack_range,
+    })?;
+    packet_handler.register(|packet: NewMailStatusPacket| NetworkEvent::NewMailStatus {
+        has_new_mail: packet.new_available != 0,
+    })?;
     packet_handler.register_noop::<AchievementUpdatePacket>()?;
     packet_handler.register_noop::<AchievementListPacket>()?;
-    packet_handler.register_noop::<CriticalWeightUpdatePacket>()?;
+    packet_handler.register(|_: CriticalWeightUpdatePacket| NetworkEvent::ChatMessage {
+        text: "Warning: You are carrying too much weight!".to_string(),
+        color: MessageColor::Error,
+    })?;
     packet_handler.register(|packet: SpriteChangeShortPacket| {
         match packet.sprite_type {
             0 => Some(NetworkEvent::ChangeJob {
@@ -343,11 +380,16 @@ where
         }),
         _ => None,
     })?;
+    // Track inventory_type to differentiate inventory vs storage item lists.
+    let inventory_type_tracker: Rc<RefCell<u8>> = Rc::new(RefCell::new(0));
+
     packet_handler.register({
         let inventory_items = inventory_items.clone();
+        let inventory_type_tracker = inventory_type_tracker.clone();
 
-        move |_: InventoyStartPacket| {
+        move |packet: InventoyStartPacket| {
             *inventory_items.borrow_mut() = Some(Vec::new());
+            *inventory_type_tracker.borrow_mut() = packet.inventory_type;
             NoNetworkEvents
         }
     })?;
@@ -439,14 +481,28 @@ where
     })?;
     packet_handler.register({
         let inventory_items = inventory_items.clone();
+        let inventory_type_tracker = inventory_type_tracker.clone();
 
-        move |_: InventoyEndPacket| {
+        move |_: InventoyEndPacket| -> NetworkEventList {
             let items = inventory_items.borrow_mut().take().expect("Unexpected inventory end packet");
-            NetworkEvent::SetInventory { items }
+            let inv_type = *inventory_type_tracker.borrow();
+            match inv_type {
+                2 => NetworkEvent::StorageItemList { items }.into(), // Storage
+                _ => NetworkEvent::SetInventory { items }.into(),   // Inventory (0) or Cart (1)
+            }
         }
     })?;
     packet_handler.register_noop::<EquippableSwitchItemListPacket>()?;
-    packet_handler.register_noop::<MapTypePacket>()?;
+    packet_handler.register(|packet: StorageItemCountPacket| NetworkEvent::StorageOpened {
+        current_count: packet.current_count,
+        maximum_count: packet.maximum_count,
+    })?;
+    packet_handler.register(|_: CloseStoragePacket2| NetworkEvent::StorageClosed)?;
+    packet_handler.register(|packet: MapTypePacket| {
+        NetworkEvent::MapInfo {
+            info_type: packet.map_type as i16,
+        }
+    })?;
     packet_handler.register(|packet: UpdateSkillTreePacket| {
         let UpdateSkillTreePacket { skill_information } = packet;
         NetworkEvent::SkillTree { skill_information }
@@ -485,8 +541,23 @@ where
     packet_handler.register_noop::<UpdatePartyInvitationStatePacket>()?;
     packet_handler.register_noop::<UpdateShowEquipPacket>()?;
     packet_handler.register_noop::<UpdateConfigurationPacket>()?;
-    packet_handler.register_noop::<NavigateToMonsterPacket>()?;
-    packet_handler.register_noop::<MarkMinimapPositionPacket>()?;
+    packet_handler.register(|packet: NavigateToMonsterPacket| {
+        let map_name = packet.map_name.trim_end_matches('\0').to_string();
+        NetworkEvent::ChatMessage {
+            text: format!(
+                "Navigate to: {} ({}, {})",
+                map_name, packet.target_position.x, packet.target_position.y
+            ),
+            color: MessageColor::Information,
+        }
+    })?;
+    packet_handler.register(|packet: MarkMinimapPositionPacket| NetworkEvent::ChatMessage {
+        text: format!(
+            "[Minimap] Marker {:?} at ({}, {}) id={}",
+            packet.marker_type, packet.position.x, packet.position.y, packet.id
+        ),
+        color: MessageColor::Server,
+    })?;
     packet_handler.register(|packet: NextButtonPacket| {
         let NextButtonPacket { npc_id } = packet;
 
@@ -504,20 +575,73 @@ where
 
         NetworkEvent::AddChoiceButtons { choices, npc_id }
     })?;
-    packet_handler.register_noop::<DisplaySpecialEffectPacket>()?;
-    packet_handler.register_noop::<DisplaySkillCooldownPacket>()?;
-    packet_handler.register_noop::<DisplaySkillEffectAndDamagePacket>()?;
+    packet_handler.register(|packet: DisplaySpecialEffectPacket| NetworkEvent::SpecialEffect {
+        entity_id: packet.entity_id,
+        effect_id: packet.effect_id,
+    })?;
+    packet_handler.register(|packet: DisplaySkillCooldownPacket| NetworkEvent::SkillCooldown {
+        skill_id: packet.skill_id,
+        until: packet.until,
+    })?;
+    packet_handler.register(|packet: DisplaySkillEffectAndDamagePacket| NetworkEvent::DamageEffect {
+        source_entity_id: packet.source_entity_id,
+        destination_entity_id: packet.destination_entity_id,
+        damage_amount: (packet.damage > 0).then_some(packet.damage as usize),
+        attack_duration: packet.destination_delay,
+        is_critical: false,
+    })?;
     packet_handler.register(|packet: DisplaySkillEffectNoDamagePacket| NetworkEvent::HealEffect {
         entity_id: packet.destination_entity_id,
         heal_amount: packet.heal_amount as usize,
     })?;
-    packet_handler.register_noop::<DisplayPlayerHealEffect>()?;
-    packet_handler.register_noop::<StatusChangePacket>()?;
-    packet_handler.register_noop::<QuestNotificationPacket1>()?;
-    packet_handler.register_noop::<HuntingQuestNotificationPacket>()?;
-    packet_handler.register_noop::<HuntingQuestUpdateObjectivePacket>()?;
-    packet_handler.register_noop::<QuestRemovedPacket>()?;
-    packet_handler.register_noop::<QuestListPacket>()?;
+    packet_handler.register(|packet: DisplayPlayerHealEffect| NetworkEvent::PlayerHealEffect {
+        is_spell_points: matches!(packet.heal_type, HealType::SpellPoints),
+        heal_amount: packet.heal_amount,
+    })?;
+    packet_handler.register(|packet: StatusChangePacket| NetworkEvent::StatusChange {
+        entity_id: packet.entity_id,
+        status_index: packet.index,
+        state: packet.state,
+        remaining_in_milliseconds: packet.remaining_in_milliseconds,
+    })?;
+    packet_handler.register(|packet: QuestNotificationPacket1| NetworkEvent::QuestAdded {
+        quest_id: packet.quest_id,
+        active: packet.active != 0,
+    })?;
+    packet_handler.register(|packet: HuntingQuestNotificationPacket| -> NetworkEventList {
+        let events: Vec<NetworkEvent> = packet
+            .objective_details
+            .iter()
+            .map(|obj| NetworkEvent::ChatMessage {
+                text: format!(
+                    "Hunting quest #{}: {}/{} (mob #{})",
+                    obj.quest_id, obj.current_count, obj.total_count, obj.mob_id
+                ),
+                color: MessageColor::Information,
+            })
+            .collect();
+        events.into()
+    })?;
+    packet_handler.register(|packet: HuntingQuestUpdateObjectivePacket| -> NetworkEventList {
+        let events: Vec<NetworkEvent> = packet
+            .objective_details
+            .iter()
+            .map(|obj| NetworkEvent::ChatMessage {
+                text: format!(
+                    "Quest #{} progress: {}/{} (mob #{})",
+                    obj.quest_id, obj.current_count, obj.total_count, obj.mob_id
+                ),
+                color: MessageColor::Information,
+            })
+            .collect();
+        events.into()
+    })?;
+    packet_handler.register(|packet: QuestRemovedPacket| NetworkEvent::QuestRemoved {
+        quest_id: packet.quest_id,
+    })?;
+    packet_handler.register(|packet: QuestListPacket| NetworkEvent::QuestList {
+        quests: packet.quests.into_iter().map(|q| (q.quest_id, q.active != 0)).collect(),
+    })?;
     packet_handler.register(|packet: VisualEffectPacket| {
         let VisualEffectPacket { entity_id, effect } = packet;
 
@@ -536,9 +660,34 @@ where
 
         NetworkEvent::VisualEffect { effect_path, entity_id }
     })?;
-    packet_handler.register_noop::<DisplayGainedExperiencePacket>()?;
-    packet_handler.register_noop::<DisplayImagePacket>()?;
-    packet_handler.register_noop::<StateChangePacket>()?;
+    packet_handler.register(|packet: DisplayGainedExperiencePacket| NetworkEvent::GainedExperience {
+        amount: packet.amount,
+        is_base_experience: matches!(packet.experience_type, ExperienceType::BaseExperience),
+    })?;
+    packet_handler.register(|packet: DisplayImagePacket| NetworkEvent::ChatMessage {
+        text: format!(
+            "[Image] {} (location: {:?})",
+            packet.image_name.trim_end_matches('\0'),
+            packet.location
+        ),
+        color: MessageColor::Server,
+    })?;
+    // StateChangePacket (0x0196) provides body/health/effect state as bitmasks.
+    // We emit a chat message for PKmode changes and handle body/health states later.
+    packet_handler.register(|packet: StateChangePacket| {
+        let mut events = Vec::new();
+        // Effect state includes Sight, Hiding, Cloaking, Cart, etc.
+        // body_state: Stone, Freeze, Stun, Sleep, etc.
+        // health_state: Poison, Curse, Silence, Blind, etc.
+        // For now, log PK mode changes.
+        if packet.is_pk_mode_on != 0 {
+            events.push(NetworkEvent::ChatMessage {
+                text: "PK Mode is enabled on this map.".to_string(),
+                color: MessageColor::Server,
+            });
+        }
+        events
+    })?;
 
     packet_handler.register(|packet: QuestEffectPacket| match packet.effect {
         QuestEffect::None => NetworkEvent::RemoveQuestEffect {
@@ -687,6 +836,9 @@ where
             entity_id: packet.source_entity_id,
             item_entity_id: packet.destination_entity_id,
         }),
+        DamageType::SitDown => Some(NetworkEvent::PlayerSitDown {
+            entity_id: packet.source_entity_id,
+        }),
         DamageType::StandUp => Some(NetworkEvent::PlayerStandUp {
             entity_id: packet.destination_entity_id,
         }),
@@ -697,19 +849,22 @@ where
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
-            attack_duration: packet.attack_duration,
+            attack_duration: packet.attack_duration as u32,
             is_critical: false,
         }),
         DamageType::CriticalHit => Some(NetworkEvent::DamageEffect {
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
-            attack_duration: packet.attack_duration,
+            attack_duration: packet.attack_duration as u32,
             is_critical: true,
         }),
         DamageType::PickUpItem => Some(NetworkEvent::EntityPickUpItem {
             entity_id: packet.source_entity_id,
             item_entity_id: packet.destination_entity_id,
+        }),
+        DamageType::SitDown => Some(NetworkEvent::PlayerSitDown {
+            entity_id: packet.source_entity_id,
         }),
         DamageType::StandUp => Some(NetworkEvent::PlayerStandUp {
             entity_id: packet.destination_entity_id,
@@ -755,7 +910,9 @@ where
             color: MessageColor::Error,
         },
     })?;
+    // UseSkillSuccessPacket: skill use animation confirmation - entity system handles visually
     packet_handler.register_noop::<UseSkillSuccessPacket>()?;
+    // ToUseSkillSuccessPacket: skill queued info - informational only
     packet_handler.register_noop::<ToUseSkillSuccessPacket>()?;
     packet_handler.register(|packet: NotifySkillUnitPacket| {
         let NotifySkillUnitPacket {
@@ -775,11 +932,20 @@ where
         let SkillUnitDisappearPacket { entity_id } = packet;
         NetworkEvent::RemoveSkillUnit { entity_id }
     })?;
-    packet_handler.register_noop::<NotifyGroundSkillPacket>()?;
+    packet_handler.register(|packet: NotifyGroundSkillPacket| NetworkEvent::GroundSkillPlaced {
+        skill_id: packet.skill_id,
+        entity_id: packet.entity_id,
+        position: packet.position,
+    })?;
     packet_handler.register(|packet: FriendListPacket| NetworkEvent::SetFriendList {
         friend_list: packet.friend_list,
     })?;
-    packet_handler.register_noop::<FriendOnlineStatusPacket>()?;
+    packet_handler.register(|packet: FriendOnlineStatusPacket| NetworkEvent::FriendOnlineStatus {
+        account_id: packet.account_id,
+        character_id: packet.character_id,
+        is_online: matches!(packet.state, OnlineState::Online),
+        name: packet.name.trim_matches('\0').to_string(),
+    })?;
     packet_handler.register(|packet: FriendRequestPacket| NetworkEvent::FriendRequest {
         requestee: packet.requestee,
     })?;
@@ -806,12 +972,29 @@ where
         account_id: packet.account_id,
         character_id: packet.character_id,
     })?;
-    packet_handler.register_noop::<PartyInvitePacket>()?;
-    packet_handler.register_noop::<StatusChangeSequencePacket>()?;
+    packet_handler.register(|packet: PartyInvitePacket| NetworkEvent::PartyInvite {
+        party_id: packet.party_id,
+        party_name: packet.party_name,
+    })?;
+    packet_handler.register(|packet: StatusChangeSequencePacket| NetworkEvent::StatusChange {
+        entity_id: EntityId(packet.id),
+        status_index: packet.index,
+        state: packet.state,
+        remaining_in_milliseconds: 0,
+    })?;
     packet_handler.register_noop::<ReputationPacket>()?;
     packet_handler.register_noop::<ClanInfoPacket>()?;
     packet_handler.register_noop::<ClanOnlineCountPacket>()?;
-    packet_handler.register_noop::<ChangeMapCellPacket>()?;
+    packet_handler.register(|packet: ChangeMapCellPacket| NetworkEvent::ChatMessage {
+        text: format!(
+            "[Map Cell] {} ({}, {}) changed to type {}",
+            packet.map_name.trim_end_matches('\0'),
+            packet.position.x,
+            packet.position.y,
+            packet.cell_type
+        ),
+        color: MessageColor::Server,
+    })?;
     packet_handler.register_noop::<OpenMarketPacket>()?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
@@ -832,37 +1015,239 @@ where
         NetworkEvent::OpenShop { items }
     })?;
     packet_handler.register(|packet: BuyShopItemsResultPacket| NetworkEvent::BuyingCompleted { result: packet.result })?;
-    packet_handler.register_noop::<ParameterChangePacket>()?;
+    packet_handler.register(|packet: ParameterChangePacket| NetworkEvent::ParameterChange {
+        variable_id: packet.variable_id,
+        value: packet.value,
+    })?;
     packet_handler.register(|packet: SellListPacket| NetworkEvent::SellItemList { items: packet.items })?;
     packet_handler.register(|packet: SellItemsResultPacket| NetworkEvent::SellingCompleted { result: packet.result })?;
-    packet_handler.register_noop::<RequestStatUpResponsePacket>()?;
-    packet_handler.register_noop::<EquipAmmunitionPacket>()?;
-    packet_handler.register_noop::<AmmunitionActionPacket>()?;
+    packet_handler.register(|packet: RequestStatUpResponsePacket| {
+        match packet.success {
+            RequestStatUpResult::Failure => Some(NetworkEvent::ChatMessage {
+                text: "Cannot increase that stat any further.".to_string(),
+                color: MessageColor::Error,
+            }),
+            RequestStatUpResult::Success => None,
+        }
+    })?;
+    packet_handler.register(|packet: EquipAmmunitionPacket| NetworkEvent::ChatMessage {
+        text: format!("[Ammo] Ammunition equipped (index {:?})", packet.inventory_index),
+        color: MessageColor::Server,
+    })?;
+    packet_handler.register(|packet: AmmunitionActionPacket| {
+        let text = match packet.action_type {
+            AmmunitionActionType::EquipProperAmmunitionFirst => "Please equip the proper ammunition first.",
+            AmmunitionActionType::WeightLimitExceeded1 | AmmunitionActionType::WeightLimitExceeded2 => "You are carrying too many items.",
+            AmmunitionActionType::Equipped => return None,
+        };
+        Some(NetworkEvent::ChatMessage {
+            text: text.to_string(),
+            color: MessageColor::Error,
+        })
+    })?;
 
     // ---- Packets added for rAthena compatibility (PACKETVER 20220406) ----
-    packet_handler.register_noop::<RefuseEnterPacket>()?;
-    packet_handler.register_noop::<ChangeDirectionPacket>()?;
-    packet_handler.register_noop::<StatusChange2Packet>()?;
-    packet_handler.register_noop::<ItemThrowAckPacket>()?;
-    packet_handler.register_noop::<SkillDamagePacket>()?;
+    packet_handler.register(|packet: RefuseEnterPacket| {
+        let text = match packet.error_code {
+            0 => "Server refused connection (banned).",
+            1 => "Server is full.",
+            2 => "You are not authorized to connect.",
+            _ => "Server refused connection.",
+        };
+        NetworkEvent::ChatMessage {
+            text: text.to_string(),
+            color: MessageColor::Error,
+        }
+    })?;
+    packet_handler.register(|packet: ChangeDirectionPacket| NetworkEvent::EntityChangeDirection {
+        entity_id: packet.entity_id,
+        direction: packet.direction,
+    })?;
+    packet_handler.register(|packet: StatusChange2Packet| NetworkEvent::StatusChange {
+        entity_id: packet.entity_id,
+        status_index: packet.index,
+        state: packet.state,
+        remaining_in_milliseconds: packet.remaining_in_milliseconds,
+    })?;
+    packet_handler.register(|packet: ItemThrowAckPacket| NetworkEvent::InventoryItemRemoved {
+        reason: RemoveItemReason::Normal,
+        index: packet.index,
+        amount: packet.count,
+    })?;
+    packet_handler.register(|packet: SkillDamagePacket| NetworkEvent::SkillDamageEffect {
+        skill_id: packet.skill_id,
+        source_entity_id: packet.source_entity_id,
+        destination_entity_id: packet.destination_entity_id,
+        damage: packet.damage,
+        div: packet.div,
+    })?;
     // ItemDroppedPacket (0x0ADD) already registered above as GroundItemAppear4Packet
     // ItemDisappearPacket already registered above with RemoveGroundItem handler
-    packet_handler.register_noop::<NpcNumberInputPacket>()?;
-    packet_handler.register_noop::<NpcStringInputPacket>()?;
-    packet_handler.register_noop::<PartyJoinResultPacket>()?;
-    packet_handler.register_noop::<PartyMemberHPPacket>()?;
-    packet_handler.register_noop::<PartyMemberPositionPacket>()?;
-    packet_handler.register_noop::<PartyMemberDeletedPacket>()?;
-    packet_handler.register_noop::<PartyMemberInfoPacket>()?;
-    packet_handler.register_noop::<CartItemCountInfoPacket>()?;
-    packet_handler.register_noop::<MapInfoPacket>()?;
-    packet_handler.register_noop::<SkillCastPacket>()?;
-    packet_handler.register_noop::<CastCancelPacket>()?;
-    packet_handler.register_noop::<NotifyEffect3Packet>()?;
-    packet_handler.register_noop::<EntityNameByGidPacket>()?;
-    packet_handler.register_noop::<ServerMovePacket>()?;
-    packet_handler.register_noop::<DeleteItemFromCartPacket>()?;
-    packet_handler.register_noop::<ClearDialogPacket>()?;
+    packet_handler.register(|packet: NpcNumberInputPacket| NetworkEvent::NpcNumberInput {
+        npc_id: packet.npc_id,
+    })?;
+    packet_handler.register(|packet: NpcStringInputPacket| NetworkEvent::NpcStringInput {
+        npc_id: packet.npc_id,
+    })?;
+    packet_handler.register(|packet: PartyJoinResultPacket| {
+        let text = match packet.result {
+            0 => format!("{} has joined the party.", packet.character_name),
+            1 => format!("{} rejected the party invitation.", packet.character_name),
+            2 => format!("{}'s party is full.", packet.character_name),
+            _ => format!("Party join failed for {} (code {}).", packet.character_name, packet.result),
+        };
+        NetworkEvent::ChatMessage {
+            text,
+            color: MessageColor::Information,
+        }
+    })?;
+    packet_handler.register(|packet: PartyMemberHPPacket| NetworkEvent::PartyMemberHP {
+        account_id: packet.account_id,
+        health_points: packet.health_points,
+        maximum_health_points: packet.maximum_health_points,
+    })?;
+    packet_handler.register(|packet: PartyMemberPositionPacket| NetworkEvent::PartyMemberPosition {
+        account_id: packet.account_id,
+        x: packet.x,
+        y: packet.y,
+    })?;
+    packet_handler.register(|packet: PartyMemberDeletedPacket| NetworkEvent::PartyMemberDeleted {
+        account_id: packet.account_id,
+        name: packet.name,
+        result: packet.result,
+    })?;
+    packet_handler.register(|packet: PartyMemberInfoPacket| NetworkEvent::PartyMemberInfo {
+        account_id: packet.account_id,
+        job: packet.job,
+        level: packet.level,
+    })?;
+    packet_handler.register(|packet: CartItemCountInfoPacket| NetworkEvent::CartInfo {
+        current_count: packet.current_count,
+        maximum_count: packet.maximum_count,
+        current_weight: packet.current_weight,
+        maximum_weight: packet.maximum_weight,
+    })?;
+    packet_handler.register(|packet: MapInfoPacket| NetworkEvent::MapInfo {
+        info_type: packet.info_type,
+    })?;
+    packet_handler.register(|packet: SkillCastPacket| NetworkEvent::SkillCasting {
+        source_entity_id: packet.source_id,
+        target_entity_id: packet.target_id,
+        position: TilePosition { x: packet.x, y: packet.y },
+        skill_id: SkillId(packet.skill_id),
+        cast_time: packet.cast_time,
+    })?;
+    packet_handler.register(|packet: CastCancelPacket| NetworkEvent::SkillCastCancel {
+        entity_id: packet.entity_id,
+    })?;
+    packet_handler.register(|packet: NotifyEffect3Packet| NetworkEvent::ChatMessage {
+        text: format!(
+            "[Effect] entity {:?} effect #{} data={}",
+            packet.entity_id, packet.effect_id, packet.data
+        ),
+        color: MessageColor::Server,
+    })?;
+    packet_handler.register(|packet: EntityNameByGidPacket| NetworkEvent::UpdateEntityDetails {
+        entity_id: packet.entity_id,
+        name: packet.name,
+    })?;
+    packet_handler.register(|packet: ServerMovePacket| NetworkEvent::ServerMove {
+        position: TilePosition { x: packet.x as u16, y: packet.y as u16 },
+    })?;
+    packet_handler.register(|packet: DeleteItemFromCartPacket| NetworkEvent::CartItemRemoved {
+        index: packet.index,
+        amount: packet.amount,
+    })?;
+    packet_handler.register(|packet: ClearDialogPacket| NetworkEvent::ClearDialog {
+        npc_id: packet.npc_id,
+    })?;
+    packet_handler.register(|packet: PropertyPetPacket| NetworkEvent::PetInfo {
+        name: packet.name.trim_matches('\0').to_string(),
+        renamed: packet.renamed != 0,
+        level: packet.level,
+        hungry: packet.hungry,
+        friendly: packet.friendly,
+        accessory: packet.accessory,
+        class: packet.class,
+    })?;
+    packet_handler.register(|packet: FeedPetPacket| {
+        let text = if packet.result == 1 { "Your pet refuses the food." } else { "Your pet happily ate the food." };
+        NetworkEvent::ChatMessage {
+            text: text.to_string(),
+            color: MessageColor::Information,
+        }
+    })?;
+    packet_handler.register(|packet: ChangeStatePetPacket| NetworkEvent::PetStateChange {
+        pet_type: packet.pet_type,
+        id: packet.id,
+        data: packet.data,
+    })?;
+    packet_handler.register(|packet: PetActPacket| NetworkEvent::PetAction {
+        entity_id: packet.gid,
+        data: packet.data,
+    })?;
+    packet_handler.register(|packet: WhisperReceivePacket| {
+        let sender = packet.sender_name.trim_matches('\0').to_string();
+        let message = packet.message.trim_matches('\0').to_string();
+        NetworkEvent::ChatMessage {
+            text: format!("{sender}: {message}"),
+            color: MessageColor::Whisper,
+        }
+    })?;
+    packet_handler.register(|packet: WhisperAckPacket| {
+        match packet.result {
+            0 => None, // Success - no message needed
+            1 => Some(NetworkEvent::ChatMessage {
+                text: "That player is not online.".to_string(),
+                color: MessageColor::Error,
+            }),
+            _ => Some(NetworkEvent::ChatMessage {
+                text: "Whisper failed.".to_string(),
+                color: MessageColor::Error,
+            }),
+        }
+    })?;
+
+    // Party and guild chat
+    packet_handler.register(|packet: PartyChatPacket| {
+        let text = packet.message.trim_matches('\0').to_string();
+        NetworkEvent::ChatMessage {
+            text: format!("[Party] {text}"),
+            color: MessageColor::Party,
+        }
+    })?;
+    packet_handler.register(|packet: GuildChatPacket| {
+        let text = packet.message.trim_matches('\0').to_string();
+        NetworkEvent::ChatMessage {
+            text: format!("[Guild] {text}"),
+            color: MessageColor::Guild,
+        }
+    })?;
+
+    // Trade packets
+    packet_handler.register(|packet: TradeRequestReceivedPacket| NetworkEvent::TradeRequested {
+        requester_name: packet.requester_name.trim_matches('\0').to_string(),
+        account_id: packet.account_id,
+        base_level: packet.base_level,
+    })?;
+    packet_handler.register(|packet: TradeResponseReceivedPacket| NetworkEvent::TradeResponse {
+        result: packet.result,
+    })?;
+    packet_handler.register(|packet: TradeItemAddedPacket| NetworkEvent::TradeItemAdded {
+        item_id: packet.item_id,
+        amount: packet.amount,
+        item_type: packet.item_type,
+        identified: packet.identified != 0,
+        refine: packet.refine,
+        location: packet.location,
+    })?;
+    packet_handler.register(|packet: TradeConcludedPacket| NetworkEvent::TradeConcluded {
+        who: packet.who,
+    })?;
+    packet_handler.register(|_: TradeCancelledPacket| NetworkEvent::TradeCancelled)?;
+    packet_handler.register(|packet: TradeCompletedPacket| NetworkEvent::TradeCompleted {
+        result: packet.result,
+    })?;
 
     Ok(())
 }

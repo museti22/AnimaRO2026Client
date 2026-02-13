@@ -22,8 +22,8 @@ use wgpu::{BufferUsages, Device, Queue};
 use crate::graphics::reduce_vertices;
 #[cfg(feature = "debug")]
 use crate::graphics::{BindlessSupport, DebugRectangleInstruction};
-use crate::graphics::{EntityInstruction, ScreenPosition, ScreenSize};
-use crate::loaders::GameFileLoader;
+use crate::graphics::{Color, EntityInstruction, ScreenPosition, ScreenSize};
+use crate::loaders::{FontSize, GameFileLoader};
 #[cfg(feature = "debug")]
 use crate::loaders::{GAT_TILE_SIZE, split_mesh_by_texture};
 use crate::renderer::GameInterfaceRenderer;
@@ -44,6 +44,38 @@ const FEMALE_HAIR_LOOKUP: &[usize] = &[2, 2, 4, 7, 1, 5, 3, 6, 12, 10, 9, 11, 8]
 const SOUND_COOLDOWN_DURATION: u32 = 200;
 const SPATIAL_SOUND_RANGE: f32 = 250.0;
 const FADE_IN_DURATION_MS: u32 = 500;
+const EMOTION_DISPLAY_DURATION_MS: u32 = 3000;
+
+/// Skill casting state for an entity.
+#[derive(Clone)]
+pub struct CastingState {
+    pub cast_time_ms: u32,
+    pub started_at: ClientTick,
+}
+
+impl CastingState {
+    /// Returns the cast progress as a value between 0.0 and 1.0.
+    pub fn progress(&self, client_tick: ClientTick) -> f32 {
+        if self.cast_time_ms == 0 {
+            return 1.0;
+        }
+        let elapsed = client_tick.0.saturating_sub(self.started_at.0);
+        (elapsed as f32 / self.cast_time_ms as f32).min(1.0)
+    }
+}
+
+/// Active emotion display state for an entity.
+#[derive(Clone)]
+pub struct EmotionState {
+    pub emotion_id: u8,
+    pub started_at: ClientTick,
+}
+
+impl EmotionState {
+    pub fn is_expired(&self, client_tick: ClientTick) -> bool {
+        client_tick.0.saturating_sub(self.started_at.0) >= EMOTION_DISPLAY_DURATION_MS
+    }
+}
 
 #[derive(Clone)]
 pub enum ResourceState<T> {
@@ -174,6 +206,10 @@ pub struct Common {
     sound_state: SoundState,
     #[hidden_element]
     fade_state: FadeState,
+    #[hidden_element]
+    pub casting_state: Option<CastingState>,
+    #[hidden_element]
+    pub emotion_state: Option<EmotionState>,
 }
 
 #[cfg_attr(feature = "debug", korangar_debug::profile)]
@@ -403,6 +439,8 @@ impl Common {
             stopped_moving: false,
             sound_state: SoundState::default(),
             fade_state: FadeState::new(FADE_IN_DURATION_MS, client_tick),
+            casting_state: None,
+            emotion_state: None,
         }
     }
 
@@ -428,6 +466,20 @@ impl Common {
     pub fn update(&mut self, audio_engine: &AudioEngine<GameFileLoader>, map: &Map, camera: &dyn Camera, client_tick: ClientTick) {
         self.update_movement(map, client_tick);
         self.animation_state.update(client_tick);
+
+        // Expire emotion display after duration.
+        if let Some(ref emotion) = self.emotion_state {
+            if emotion.is_expired(client_tick) {
+                self.emotion_state = None;
+            }
+        }
+
+        // Expire casting bar when cast time elapsed.
+        if let Some(ref cast) = self.casting_state {
+            if cast.progress(client_tick) >= 1.0 {
+                self.casting_state = None;
+            }
+        }
 
         if self.fade_state.is_fading() && self.fade_state.is_done_fading_in(client_tick) {
             self.fade_state = FadeState::Opaque;
@@ -890,6 +942,7 @@ pub struct Player {
     pub base_level: usize,
     pub job_level: usize,
     pub stat_points: u32,
+    pub skill_points: u32,
     pub strength: i32,
     pub bonus_strength: i32,
     pub strength_stat_points_cost: u8,
@@ -909,6 +962,25 @@ pub struct Player {
     pub bonus_luck: i32,
     pub luck_stat_points_cost: u8,
     pub attack_speed: u32,
+    pub attack1: u32,
+    pub attack2: u32,
+    pub defense1: u32,
+    pub defense2: u32,
+    pub magic_attack1: u32,
+    pub magic_attack2: u32,
+    pub magic_defense1: u32,
+    pub magic_defense2: u32,
+    pub hit: u32,
+    pub flee1: u32,
+    pub flee2: u32,
+    pub critical: u32,
+    pub zeny: u32,
+    pub weight: u32,
+    pub maximum_weight: u32,
+    pub base_experience: u64,
+    pub next_base_experience: u64,
+    pub job_experience: u64,
+    pub next_job_experience: u64,
 }
 
 impl Player {
@@ -943,6 +1015,7 @@ impl Player {
             base_level,
             job_level,
             stat_points,
+            skill_points: 0,
             strength: character_information.strength as i32,
             bonus_strength: 0,
             strength_stat_points_cost: 0,
@@ -962,6 +1035,25 @@ impl Player {
             bonus_luck: 0,
             luck_stat_points_cost: 0,
             attack_speed: 0,
+            attack1: 0,
+            attack2: 0,
+            defense1: 0,
+            defense2: 0,
+            magic_attack1: 0,
+            magic_attack2: 0,
+            magic_defense1: 0,
+            magic_defense2: 0,
+            hit: 0,
+            flee1: 0,
+            flee2: 0,
+            critical: 0,
+            zeny: character_information.money as u32,
+            weight: 0,
+            maximum_weight: 0,
+            base_experience: 0,
+            next_base_experience: 1,
+            job_experience: 0,
+            next_job_experience: 1,
         }
     }
 
@@ -985,6 +1077,7 @@ impl Player {
             StatType::BaseLevel(value) => self.base_level = value as usize,
             StatType::JobLevel(value) => self.job_level = value as usize,
             StatType::StatPoints(stat_points) => self.stat_points = stat_points,
+            StatType::SkillPoint(value) => self.skill_points = value,
             StatType::Strength(base, bonus) => {
                 self.strength = base;
                 self.bonus_strength = bonus;
@@ -1016,11 +1109,57 @@ impl Player {
             StatType::DexterityStatPointCost(cost) => self.dexterity_stat_points_cost = cost,
             StatType::LuckStatPointCost(cost) => self.luck_stat_points_cost = cost,
             StatType::AttackSpeed(attack_speed) => self.attack_speed = attack_speed,
+            StatType::Attack1(value) => self.attack1 = value,
+            StatType::Attack2(value) => self.attack2 = value,
+            StatType::Defense1(value) => self.defense1 = value,
+            StatType::Defense2(value) => self.defense2 = value,
+            StatType::MagicAttack1(value) => self.magic_attack1 = value,
+            StatType::MagicAttack2(value) => self.magic_attack2 = value,
+            StatType::MagicDefense1(value) => self.magic_defense1 = value,
+            StatType::MagicDefense2(value) => self.magic_defense2 = value,
+            StatType::Hit(value) => self.hit = value,
+            StatType::Flee1(value) => self.flee1 = value,
+            StatType::Flee2(value) => self.flee2 = value,
+            StatType::Critical(value) => self.critical = value,
+            StatType::Zeny(value) => self.zeny = value,
+            StatType::Weight(value) => self.weight = value,
+            StatType::MaximumWeight(value) => self.maximum_weight = value,
+            StatType::BaseExperience(value) => self.base_experience = value,
+            StatType::JobExperience(value) => self.job_experience = value,
+            StatType::NextBaseExperience(value) => self.next_base_experience = value.max(1),
+            StatType::NextJobExperience(value) => self.next_job_experience = value.max(1),
             _ => {}
         }
     }
 
-    pub fn render_status(&self, renderer: &GameInterfaceRenderer, camera: &dyn Camera, theme: &WorldTheme, window_size: ScreenSize) {
+    /// Update a parameter by variable_id (from ParameterChangePacket 0x00B1).
+    /// Uses the same SP_* codes as the stat system.
+    pub fn update_parameter(&mut self, variable_id: u16, value: u32) {
+        match variable_id {
+            1 => self.common.movement_speed = value as usize,  // SP_SPEED
+            5 => self.common.health_points = value as usize,   // SP_HP
+            6 => self.common.maximum_health_points = value as usize, // SP_MAXHP
+            7 => self.spell_points = value as usize,           // SP_SP
+            8 => self.maximum_spell_points = value as usize,   // SP_MAXSP
+            9 => self.stat_points = value,                     // SP_STATUSPOINT
+            11 => self.base_level = value as usize,            // SP_BASELEVEL
+            12 => self.skill_points = value,                   // SP_SKILLPOINT
+            20 => self.zeny = value,                           // SP_ZENY
+            24 => self.weight = value,                         // SP_WEIGHT
+            25 => self.maximum_weight = value,                 // SP_MAXWEIGHT
+            55 => self.job_level = value as usize,             // SP_JOBLEVEL
+            _ => {}
+        }
+    }
+
+    pub fn render_status(
+        &self,
+        renderer: &GameInterfaceRenderer,
+        camera: &dyn Camera,
+        theme: &WorldTheme,
+        window_size: ScreenSize,
+        client_tick: ClientTick,
+    ) {
         let clip_space_position = camera.view_projection_matrix() * self.common.world_position.to_homogeneous();
         let screen_position = camera.clip_to_screen_space(clip_space_position);
         let final_position = ScreenPosition {
@@ -1030,8 +1169,13 @@ impl Player {
 
         let bar_width = theme.status_bar.player_bar_width;
         let gap = theme.status_bar.gap;
-        let total_height =
-            theme.status_bar.health_height + theme.status_bar.spell_point_height + theme.status_bar.activity_point_height + gap * 2.0;
+        let has_cast_bar = self.common.casting_state.is_some();
+        let cast_bar_height = if has_cast_bar { theme.status_bar.spell_point_height + gap } else { 0.0 };
+        let total_height = theme.status_bar.health_height
+            + theme.status_bar.spell_point_height
+            + theme.status_bar.activity_point_height
+            + gap * 2.0
+            + cast_bar_height;
 
         let mut offset = 0.0;
 
@@ -1080,11 +1224,71 @@ impl Player {
             self.maximum_activity_points as f32,
             self.activity_points as f32,
         );
+
+        // Casting bar (yellow/orange).
+        if let Some(ref cast) = self.common.casting_state {
+            offset += gap + theme.status_bar.activity_point_height;
+            let progress = cast.progress(client_tick);
+            renderer.render_bar(
+                final_position + ScreenPosition::only_top(offset),
+                ScreenSize {
+                    width: bar_width,
+                    height: theme.status_bar.spell_point_height,
+                },
+                Color::rgb_u8(255, 200, 50),
+                1.0,
+                progress,
+            );
+        }
+
+        // Emotion display above status bars.
+        render_emotion(renderer, &self.common, final_position);
     }
 
     pub fn get_entity_part_files(&self, library: &Library) -> Vec<String> {
         let common = self.get_common();
         get_entity_part_files(library, common.entity_type, common.job_id, common.sex, Some(self.hair_id))
+    }
+}
+
+/// Map emotion ID to a display symbol/text.
+fn emotion_symbol(emotion_id: u8) -> &'static str {
+    match emotion_id {
+        0 => ":)",       // /!
+        1 => "?",        // /?
+        2 => "<3",       // /ho - Heart
+        3 => "!!",       // /lv
+        4 => "$_$",      // /swt
+        5 => "...",      // /ic
+        6 => "oO",       // /an
+        7 => "^^",       // /ag
+        8 => "-_-",      // /..
+        9 => ">_<",      // /$
+        10 => "~_~",     // /...
+        11 => "zzZ",     // /gg - Sleep
+        12 => "!!",      // /gx
+        13 => "XP",      // /!?
+        14 => ":P",      // /thx
+        15 => ":(",      // /wah
+        16 => "SOS",     // /sry
+        17 => "*_*",     // /kis
+        18 => "o_o",     // /kis2
+        19 => "|_|",     // /no1
+        20 => "\\o/",    // /cel
+        21 => "~",       // /bsh
+        22 => "LOL",     // /pif
+        23 => "@_@",     // /die
+        33 => "/lv2",    // /lv2
+        _ => "?!",
+    }
+}
+
+/// Render an emotion symbol above an entity.
+fn render_emotion(renderer: &GameInterfaceRenderer, common: &Common, status_position: ScreenPosition) {
+    if let Some(ref emotion) = common.emotion_state {
+        let text = emotion_symbol(emotion.emotion_id);
+        let emotion_position = status_position + ScreenPosition::only_top(-20.0);
+        renderer.render_damage_text(text, emotion_position, Color::rgb_u8(255, 255, 100), FontSize(14.0));
     }
 }
 
@@ -1128,11 +1332,14 @@ impl Npc {
         &mut self.common
     }
 
-    pub fn render_status(&self, renderer: &GameInterfaceRenderer, camera: &dyn Camera, theme: &WorldTheme, window_size: ScreenSize) {
-        if self.common.entity_type != EntityType::Monster {
-            return;
-        }
-
+    pub fn render_status(
+        &self,
+        renderer: &GameInterfaceRenderer,
+        camera: &dyn Camera,
+        theme: &WorldTheme,
+        window_size: ScreenSize,
+        client_tick: ClientTick,
+    ) {
         let clip_space_position = camera.view_projection_matrix() * self.common.world_position.to_homogeneous();
         let screen_position = camera.clip_to_screen_space(clip_space_position);
         let final_position = ScreenPosition {
@@ -1140,13 +1347,22 @@ impl Npc {
             top: screen_position.y * window_size.height + 5.0,
         };
 
+        // Render emotion for any NPC/monster.
+        render_emotion(renderer, &self.common, final_position);
+
+        if self.common.entity_type != EntityType::Monster {
+            return;
+        }
+
         let bar_width = theme.status_bar.enemy_bar_width;
+        let has_cast_bar = self.common.casting_state.is_some();
+        let cast_bar_extra = if has_cast_bar { theme.status_bar.spell_point_height + theme.status_bar.gap } else { 0.0 };
 
         renderer.render_rectangle(
             final_position - theme.status_bar.border_size - ScreenSize::only_width(bar_width / 2.0),
             ScreenSize {
                 width: bar_width,
-                height: theme.status_bar.enemy_health_height,
+                height: theme.status_bar.enemy_health_height + cast_bar_extra,
             } + (theme.status_bar.border_size * 2.0),
             theme.status_bar.background_color,
         );
@@ -1161,6 +1377,22 @@ impl Npc {
             self.common.maximum_health_points as f32,
             self.common.health_points as f32,
         );
+
+        // Casting bar for monsters.
+        if let Some(ref cast) = self.common.casting_state {
+            let offset = theme.status_bar.enemy_health_height + theme.status_bar.gap;
+            let progress = cast.progress(client_tick);
+            renderer.render_bar(
+                final_position + ScreenPosition::only_top(offset),
+                ScreenSize {
+                    width: bar_width,
+                    height: theme.status_bar.spell_point_height,
+                },
+                Color::rgb_u8(255, 200, 50),
+                1.0,
+                progress,
+            );
+        }
     }
 }
 
@@ -1295,9 +1527,22 @@ impl Entity {
         self.get_common_mut().animation_state.idle(entity_type, client_tick);
     }
 
+    pub fn set_sit(&mut self, client_tick: ClientTick) {
+        let entity_type = self.get_entity_type();
+        self.get_common_mut().animation_state.sit(entity_type, client_tick);
+    }
+
+    pub fn is_sitting(&self) -> bool {
+        self.get_common().animation_state.is_sitting()
+    }
+
     pub fn set_pickup(&mut self, client_tick: ClientTick) {
         let entity_type = self.get_entity_type();
         self.get_common_mut().animation_state.pickup(entity_type, client_tick);
+    }
+
+    pub fn set_direction(&mut self, direction: Direction) {
+        self.get_common_mut().direction = direction;
     }
 
     pub fn rotate_towards(&mut self, target_position: TilePosition) {
@@ -1332,6 +1577,24 @@ impl Entity {
         let common = self.get_common_mut();
         common.health_points = health_points;
         common.maximum_health_points = maximum_health_points;
+    }
+
+    pub fn set_casting(&mut self, cast_time_ms: u32, client_tick: ClientTick) {
+        self.get_common_mut().casting_state = Some(CastingState {
+            cast_time_ms,
+            started_at: client_tick,
+        });
+    }
+
+    pub fn cancel_casting(&mut self) {
+        self.get_common_mut().casting_state = None;
+    }
+
+    pub fn set_emotion(&mut self, emotion_id: u8, client_tick: ClientTick) {
+        self.get_common_mut().emotion_state = Some(EmotionState {
+            emotion_id,
+            started_at: client_tick,
+        });
     }
 
     pub fn update(&mut self, audio_engine: &AudioEngine<GameFileLoader>, map: &Map, camera: &dyn Camera, client_tick: ClientTick) {
@@ -1382,10 +1645,17 @@ impl Entity {
         self.get_common().render_marker(renderer, camera, marker_identifier, hovered);
     }
 
-    pub fn render_status(&self, renderer: &GameInterfaceRenderer, camera: &dyn Camera, theme: &WorldTheme, window_size: ScreenSize) {
+    pub fn render_status(
+        &self,
+        renderer: &GameInterfaceRenderer,
+        camera: &dyn Camera,
+        theme: &WorldTheme,
+        window_size: ScreenSize,
+        client_tick: ClientTick,
+    ) {
         match self {
-            Self::Player(player) => player.render_status(renderer, camera, theme, window_size),
-            Self::Npc(npc) => npc.render_status(renderer, camera, theme, window_size),
+            Self::Player(player) => player.render_status(renderer, camera, theme, window_size, client_tick),
+            Self::Npc(npc) => npc.render_status(renderer, camera, theme, window_size, client_tick),
         }
     }
 }

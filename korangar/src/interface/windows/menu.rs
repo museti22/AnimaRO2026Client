@@ -47,6 +47,34 @@ impl CustomWindow<ClientState> for MenuWindow {
                     text: "Keybindings",
                     event: InputEvent::ToggleKeybindingSettingsWindow,
                 },
+                button! {
+                    text: "Party",
+                    event: InputEvent::TogglePartyWindow,
+                },
+                button! {
+                    text: "Guild",
+                    event: InputEvent::ToggleGuildWindow,
+                },
+                button! {
+                    text: "Quest Log",
+                    event: InputEvent::ToggleQuestWindow,
+                },
+                button! {
+                    text: "Minimap",
+                    event: InputEvent::ToggleMinimapWindow,
+                },
+                button! {
+                    text: "Companions",
+                    event: InputEvent::TogglePetWindow,
+                },
+                button! {
+                    text: "Mail",
+                    event: InputEvent::ToggleMailWindow,
+                },
+                button! {
+                    text: "Status Effects",
+                    event: InputEvent::ToggleStatusEffectsWindow,
+                },
                 #[cfg(feature = "debug")]
                 button! {
                     text: "Render options",

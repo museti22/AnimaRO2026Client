@@ -221,11 +221,27 @@ impl InputSystem {
                 keybinding_settings.toggle_skill_tree.to_key_code(),
                 keybinding_settings.toggle_stats.to_key_code(),
                 keybinding_settings.toggle_friend_list.to_key_code(),
+                keybinding_settings.toggle_party.to_key_code(),
+                keybinding_settings.toggle_guild.to_key_code(),
+                keybinding_settings.toggle_quest.to_key_code(),
+                keybinding_settings.toggle_minimap.to_key_code(),
             ] {
                 if self.get_key(key_code).pressed() {
                     if let Some(event) = keybinding_settings.find_window_toggle(key_code) {
                         events.push(event);
                     }
+                }
+            }
+
+            // Alt+1 through Alt+9: Send emotes (classic RO keybind).
+            let emote_keys = [
+                KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
+                KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
+                KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9,
+            ];
+            for (index, &key_code) in emote_keys.iter().enumerate() {
+                if self.get_key(key_code).pressed() {
+                    events.push(InputEvent::SendEmotion { emotion: index as u8 });
                 }
             }
         }
@@ -253,6 +269,11 @@ impl InputSystem {
 
         if control_down && self.get_key(KeyCode::KeyQ).pressed() {
             events.push(InputEvent::CloseTopWindow);
+        }
+
+        // Insert key to toggle sit/stand (classic RO keybind).
+        if self.get_key(KeyCode::Insert).pressed() {
+            events.push(InputEvent::ToggleSit);
         }
 
         // Hotbar skill casting using configurable keybindings.

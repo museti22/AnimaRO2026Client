@@ -71,8 +71,8 @@ use networking::{PacketHistory, PacketHistoryCallback};
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
-    AttackRange, BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, HotbarSlot, SellItemsResult, SkillId,
-    SkillType, TilePosition, UnitId, WorldPosition,
+    AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, HotbarSlot, SellItemsResult,
+    SkillId, TilePosition, UnitId, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{Context, ManuallyAssertExt};
@@ -924,6 +924,16 @@ impl Client {
 
         self.networking_system.get_events(&mut self.network_event_buffer);
 
+        // Remove expired status effects each frame.
+        self.client_state
+            .follow_mut(client_state().active_status_effects())
+            .retain(|effect| {
+                if effect.duration_ms == 0 {
+                    return true; // Permanent effects stay until server removes them
+                }
+                effect.applied_at.elapsed().as_millis() < effect.duration_ms as u128
+            });
+
         #[cfg(feature = "debug")]
         let picker_measurement = Profiler::start_measurement("update picker target");
 
@@ -1108,6 +1118,16 @@ impl Client {
                         .find(|entity| entity.get_entity_id() == entity_id)
                     {
                         entity.set_idle(client_tick);
+                    }
+                }
+                NetworkEvent::PlayerSitDown { entity_id } => {
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id)
+                    {
+                        entity.set_sit(client_tick);
                     }
                 }
                 NetworkEvent::AccountId { .. } => {}
@@ -1418,9 +1438,15 @@ impl Client {
                     self.client_state.follow_mut(client_state().dead_entities()).clear();
                     self.client_state.follow_mut(client_state().ground_items()).clear();
                     *self.client_state.follow_mut(client_state().buffered_action()) = None;
+                    self.client_state.follow_mut(client_state().active_status_effects()).clear();
 
-                    // Close any remaining dialogs.
+                    // Close any remaining dialogs, shops, trade, and storage on map change.
                     self.interface.close_window_with_class(WindowClass::Dialog);
+                    self.interface.close_window_with_class(WindowClass::Buy);
+                    self.interface.close_window_with_class(WindowClass::BuyOrSell);
+                    self.interface.close_window_with_class(WindowClass::Sell);
+                    self.interface.close_window_with_class(WindowClass::Trade);
+                    self.interface.close_window_with_class(WindowClass::Storage);
 
                     self.async_loader.request_map_load(map_name, Some(position));
                 }
@@ -1941,6 +1967,530 @@ impl Client {
                         });
                     }
                 }
+                NetworkEvent::EntityStopMove { entity_id, position } => {
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id)
+                    {
+                        entity.stop_movement();
+                        if let Some(map) = &self.map {
+                            entity.set_position(map, position, client_tick);
+                        }
+                    }
+                }
+                NetworkEvent::EntityChangeDirection { entity_id, direction } => {
+                    let new_direction = Direction::from(direction as u16);
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|entity| entity.get_entity_id() == entity_id)
+                    {
+                        entity.set_direction(new_direction);
+                    }
+                }
+                NetworkEvent::NpcNumberInput { npc_id } => {
+                    self.client_state
+                        .follow_mut(client_state().dialog_window())
+                        .initialize(npc_id)
+                        .add_number_input();
+
+                    if !self.interface.is_window_with_class_open(WindowClass::Dialog) {
+                        self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
+                    }
+                }
+                NetworkEvent::NpcStringInput { npc_id } => {
+                    self.client_state
+                        .follow_mut(client_state().dialog_window())
+                        .initialize(npc_id)
+                        .add_string_input();
+
+                    if !self.interface.is_window_with_class_open(WindowClass::Dialog) {
+                        self.interface.open_window(DialogWindow::new(client_state().dialog_window()));
+                    }
+                }
+                NetworkEvent::PartyMemberHP { account_id, health_points, maximum_health_points } => {
+                    let members = self.client_state.follow_mut(client_state().party_members());
+                    if let Some(member) = members.iter_mut().find(|m| m.account_id == account_id) {
+                        member.health_points = health_points;
+                        member.maximum_health_points = maximum_health_points;
+                    }
+                }
+                NetworkEvent::PartyMemberPosition { account_id, x, y } => {
+                    let members = self.client_state.follow_mut(client_state().party_members());
+                    if let Some(member) = members.iter_mut().find(|m| m.account_id == account_id) {
+                        member.x = x;
+                        member.y = y;
+                    }
+                }
+                NetworkEvent::PartyMemberDeleted { account_id, name, .. } => {
+                    let members = self.client_state.follow_mut(client_state().party_members());
+                    members.retain(|m| m.account_id != account_id);
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("{name} has left the party."),
+                            MessageColor::Information,
+                        ));
+                }
+                NetworkEvent::Emotion { entity_id, emotion } => {
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|e| e.get_entity_id() == entity_id)
+                    {
+                        entity.set_emotion(emotion, client_tick);
+                    }
+                }
+                NetworkEvent::SkillCasting {
+                    source_entity_id,
+                    cast_time,
+                    ..
+                } => {
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|e| e.get_entity_id() == source_entity_id)
+                    {
+                        entity.set_casting(cast_time, client_tick);
+                    }
+                }
+                NetworkEvent::SkillCastCancel { entity_id } => {
+                    if let Some(entity) = self
+                        .client_state
+                        .follow_mut(client_state().entities())
+                        .iter_mut()
+                        .find(|e| e.get_entity_id() == entity_id)
+                    {
+                        entity.cancel_casting();
+                    }
+                }
+                NetworkEvent::ClearDialog { npc_id } => {
+                    let _ = npc_id;
+                    self.client_state.follow_mut(client_state().dialog_window()).end();
+                    self.interface.close_window_with_class(WindowClass::Dialog);
+                }
+                NetworkEvent::StatusChange {
+                    entity_id,
+                    status_index,
+                    state: effect_state,
+                    remaining_in_milliseconds,
+                } => {
+                    // Show status effect changes for the player
+                    let player_entity_id = self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .next()
+                        .map(|e| e.get_entity_id());
+                    if Some(entity_id) == player_entity_id {
+                        let status_name = state::status_effect_name(status_index);
+
+                        if effect_state != 0 {
+                            // Effect applied — add to active effects list
+                            let effects = self.client_state.follow_mut(client_state().active_status_effects());
+                            // Remove any existing entry for this status first
+                            effects.retain(|e| e.status_index != status_index);
+                            if !status_name.is_empty() {
+                                effects.push(state::ActiveStatusEffect {
+                                    status_index,
+                                    name: status_name.to_string(),
+                                    duration_ms: remaining_in_milliseconds,
+                                    applied_at: std::time::Instant::now(),
+                                });
+                            }
+
+                            // Chat notification
+                            if !status_name.is_empty() {
+                                let action = if remaining_in_milliseconds > 0 {
+                                    format!("applied ({:.1}s)", remaining_in_milliseconds as f32 / 1000.0)
+                                } else {
+                                    "applied".to_string()
+                                };
+                                self.client_state
+                                    .follow_mut(client_state().chat_messages())
+                                    .push(ChatMessage::new(
+                                        format!("{status_name} {action}."),
+                                        MessageColor::Information,
+                                    ));
+                            }
+                        } else {
+                            // Effect ended — remove from active effects list
+                            self.client_state
+                                .follow_mut(client_state().active_status_effects())
+                                .retain(|e| e.status_index != status_index);
+
+                            if !status_name.is_empty() {
+                                self.client_state
+                                    .follow_mut(client_state().chat_messages())
+                                    .push(ChatMessage::new(
+                                        format!("{status_name} ended."),
+                                        MessageColor::Information,
+                                    ));
+                            }
+                        }
+                    }
+                }
+                NetworkEvent::GainedExperience {
+                    amount,
+                    is_base_experience,
+                } => {
+                    let exp_type = if is_base_experience { "Base" } else { "Job" };
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("{exp_type} EXP: {amount}"),
+                            MessageColor::Information,
+                        ));
+                }
+                NetworkEvent::SkillCooldown { skill_id, until } => {
+                    // Calculate remaining cooldown from current tick.
+                    let remaining_ms = until.0.saturating_sub(client_tick.0);
+                    if remaining_ms > 0 {
+                        // Find skill name for the message.
+                        let skill_name = self
+                            .client_state
+                            .follow(client_state().skill_tree())
+                            .find_skill(skill_id)
+                            .map(|s| s.skill_name.clone())
+                            .unwrap_or_else(|| format!("Skill #{}", skill_id.0));
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(
+                                format!("{} cooldown: {:.1}s", skill_name, remaining_ms as f32 / 1000.0),
+                                MessageColor::Information,
+                            ));
+                    }
+                }
+                NetworkEvent::PlayerHealEffect {
+                    is_spell_points,
+                    heal_amount,
+                } => {
+                    let heal_type = if is_spell_points { "SP" } else { "HP" };
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("{heal_type} restored: {heal_amount}"),
+                            MessageColor::Information,
+                        ));
+                }
+                NetworkEvent::SpecialEffect { entity_id, effect_id } => {
+                    let _ = (entity_id, effect_id);
+                    // TODO: Play effect animation on entity
+                }
+                NetworkEvent::PartyInvite { party_id, party_name } => {
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("Party invitation from '{party_name}'"),
+                            MessageColor::Information,
+                        ));
+                    self.interface
+                        .open_window(PartyInviteWindow::new(party_id, party_name));
+                }
+                NetworkEvent::ParameterChange { variable_id, value } => {
+                    if let Some(player) = self.client_state.try_follow_mut(this_player()) {
+                        player.update_parameter(variable_id, value);
+                    }
+                }
+                NetworkEvent::SkillDamageEffect {
+                    skill_id,
+                    source_entity_id,
+                    destination_entity_id,
+                    damage,
+                    div,
+                } => {
+                    let _ = (skill_id, div, source_entity_id);
+                    if let Some(entity) = self
+                        .client_state
+                        .follow(client_state().entities())
+                        .iter()
+                        .find(|entity| entity.get_entity_id() == destination_entity_id)
+                        .or_else(|| self.client_state.try_follow(this_entity()))
+                    {
+                        let particle: Box<dyn Particle + Send + Sync> = if damage > 0 {
+                            Box::new(DamageNumber::new(entity.get_position(), damage.to_string(), false))
+                        } else {
+                            Box::new(Miss::new(entity.get_position()))
+                        };
+                        self.particle_holder.spawn_particle(particle);
+                    }
+                }
+                NetworkEvent::TradeRequested {
+                    requester_name,
+                    account_id,
+                    base_level,
+                } => {
+                    self.interface.open_window(TradeRequestWindow::new(
+                        requester_name,
+                        account_id,
+                        base_level,
+                    ));
+                }
+                NetworkEvent::TradeResponse { result } => {
+                    match result {
+                        3 => {
+                            // Trade accepted - open trade window
+                            self.client_state.follow_mut(client_state().trade_state()).clear();
+                            self.interface.open_window(TradeWindow);
+                        }
+                        _ => {
+                            let msg = match result {
+                                0 => "Trade failed: You are too far away.",
+                                1 => "Trade failed: Partner is too far away.",
+                                2 => "Trade failed: Partner is busy.",
+                                4 => "Trade rejected.",
+                                5 => "Trade failed: Partner is carrying too much.",
+                                _ => "Trade failed.",
+                            };
+                            self.client_state
+                                .follow_mut(client_state().chat_messages())
+                                .push(ChatMessage::new(msg.to_string(), MessageColor::Error));
+                        }
+                    }
+                }
+                NetworkEvent::TradeItemAdded {
+                    item_id,
+                    amount,
+                    item_type: _,
+                    identified,
+                    refine,
+                    location,
+                } => {
+                    let trade_item = crate::state::TradeItem {
+                        item_id,
+                        amount,
+                        name: format!("Item #{}", item_id),
+                        identified,
+                        refine,
+                        refinement_level: refine,
+                    };
+                    let trade_state = self.client_state.follow_mut(client_state().trade_state());
+                    if location == 0 {
+                        trade_state.player_items.push(trade_item);
+                    } else {
+                        trade_state.partner_items.push(trade_item);
+                    }
+                }
+                NetworkEvent::TradeConcluded { who } => {
+                    let trade_state = self.client_state.follow_mut(client_state().trade_state());
+                    if who == 0 {
+                        trade_state.player_locked = true;
+                    } else {
+                        trade_state.partner_locked = true;
+                    }
+                }
+                NetworkEvent::TradeCancelled => {
+                    self.client_state.follow_mut(client_state().trade_state()).clear();
+                    self.interface.close_window_with_class(WindowClass::Trade);
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new("Trade cancelled.".to_string(), MessageColor::Information));
+                }
+                NetworkEvent::TradeCompleted { result } => {
+                    self.client_state.follow_mut(client_state().trade_state()).clear();
+                    self.interface.close_window_with_class(WindowClass::Trade);
+                    let msg = if result == 0 { "Trade completed successfully." } else { "Trade failed." };
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(msg.to_string(), MessageColor::Information));
+                }
+                NetworkEvent::CartInfo { current_count, maximum_count, current_weight, maximum_weight } => {
+                    let msg = format!(
+                        "Cart: {}/{} items, {}/{} weight",
+                        current_count, maximum_count, current_weight, maximum_weight,
+                    );
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(msg, MessageColor::Information));
+                }
+                NetworkEvent::PetInfo { name, renamed: _, level, hungry, friendly, accessory: _, class: _ } => {
+                    let msg = format!("Pet: {} (Lv.{}, Hunger:{}, Loyalty:{})", name, level, hungry, friendly);
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(msg, MessageColor::Information));
+                }
+                NetworkEvent::PetStateChange { .. } => {
+                    // Pet state updates (spawn/despawn) - handled visually by entity system
+                }
+                NetworkEvent::PetAction { .. } => {
+                    // Pet emotions/actions - visual only
+                }
+                NetworkEvent::PartyMemberInfo { account_id, job, level } => {
+                    let members = self.client_state.follow_mut(client_state().party_members());
+                    if let Some(member) = members.iter_mut().find(|m| m.account_id == account_id) {
+                        member.job = job;
+                        member.level = level;
+                    } else {
+                        members.push(state::PartyMember {
+                            account_id,
+                            job,
+                            level,
+                            ..Default::default()
+                        });
+                    }
+                }
+                NetworkEvent::ActionFailure { action_type } => {
+                    let msg = match action_type {
+                        0 => "Please equip the proper ammunition first.",
+                        1 | 2 => "You are carrying too many items.",
+                        _ => "Action failed.",
+                    };
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(msg.to_string(), MessageColor::Error));
+                }
+                NetworkEvent::AttackRangeUpdate { .. } => {
+                    // Attack range stored internally for combat distance checks
+                }
+                NetworkEvent::MapInfo { info_type } => {
+                    let map_type_name = match info_type {
+                        0 => None, // Normal
+                        1 => Some("PvP"),
+                        2 => Some("GvG"),
+                        3 => Some("Siege"),
+                        4 => Some("PvP (no party)"),
+                        5 => Some("GvG (dungeon)"),
+                        6 => Some("Night"),
+                        _ => Some("Special"),
+                    };
+                    if let Some(name) = map_type_name {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(
+                                format!("Map type: {name}"),
+                                MessageColor::Information,
+                            ));
+                    }
+                }
+                NetworkEvent::CartItemRemoved { .. } => {
+                    // Cart item removed - cart system tracking
+                }
+                NetworkEvent::StatUpResult { stat_type, success, value } => {
+                    if !success {
+                        let stat_name = match stat_type {
+                            13 => "STR", 14 => "AGI", 15 => "VIT",
+                            16 => "INT", 17 => "DEX", 18 => "LUK",
+                            _ => "stat",
+                        };
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(
+                                format!("Not enough stat points to increase {} (needs {})", stat_name, value),
+                                MessageColor::Error,
+                            ));
+                    }
+                }
+                NetworkEvent::GroundSkillPlaced { skill_id, position, .. } => {
+                    // Ground skill visual effect (e.g. Firewall, Safety Wall)
+                    // TODO: render ground skill unit visuals
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("Ground skill placed at ({}, {}) [Skill: {:?}]", position.x, position.y, skill_id),
+                            MessageColor::Information,
+                        ));
+                }
+                NetworkEvent::FriendOnlineStatus { name, is_online, .. } => {
+                    let status = if is_online { "online" } else { "offline" };
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("{} is now {}.", name, status),
+                            MessageColor::Information,
+                        ));
+                }
+                NetworkEvent::QuestList { quests } => {
+                    let entries: Vec<_> = quests
+                        .into_iter()
+                        .map(|(quest_id, active)| {
+                            crate::state::QuestEntry {
+                                name: format!("Quest #{}{}", quest_id, if active { "" } else { " (inactive)" }),
+                            }
+                        })
+                        .collect();
+                    *self.client_state.follow_mut(client_state().quest_entries()) = entries;
+                }
+                NetworkEvent::QuestAdded { quest_id, active } => {
+                    self.client_state
+                        .follow_mut(client_state().quest_entries())
+                        .push(crate::state::QuestEntry {
+                            name: format!("Quest #{}{}", quest_id, if active { "" } else { " (inactive)" }),
+                        });
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("New quest received: Quest #{}", quest_id),
+                            MessageColor::Information,
+                        ));
+                }
+                NetworkEvent::QuestRemoved { quest_id } => {
+                    let entries = self.client_state.follow_mut(client_state().quest_entries());
+                    let id_str = format!("Quest #{}", quest_id);
+                    entries.retain(|e| !e.name.starts_with(&id_str));
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("Quest #{} completed!", quest_id),
+                            MessageColor::Information,
+                        ));
+                }
+                NetworkEvent::NewMailStatus { has_new_mail } => {
+                    if has_new_mail {
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(
+                                "You have new mail!".to_string(),
+                                MessageColor::Information,
+                            ));
+                    }
+                }
+                NetworkEvent::ServerMove { position } => {
+                    // Server forced the player to a new position (knockback)
+                    if let Some(map) = &self.map {
+                        if let Some(entity) = self.client_state.follow_mut(client_state().entities()).first_mut() {
+                            entity.set_position(map, position, client_tick);
+                        }
+                    }
+                }
+                NetworkEvent::RefusedEntry { error_code } => {
+                    let text = match error_code {
+                        0 => "Server refused connection (banned).",
+                        1 => "Server is full.",
+                        2 => "You are not authorized to connect.",
+                        _ => "Server refused connection.",
+                    };
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(text.to_string(), MessageColor::Error));
+                }
+                NetworkEvent::StorageOpened { current_count, maximum_count } => {
+                    self.client_state.follow_mut(client_state().storage_items()).clear();
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("Storage opened ({}/{} items)", current_count, maximum_count),
+                            MessageColor::Information,
+                        ));
+                    self.interface.open_window(StorageWindow::new(client_state().storage_items()));
+                }
+                NetworkEvent::StorageClosed => {
+                    self.interface.close_window_with_class(WindowClass::Storage);
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new("Storage closed.".to_string(), MessageColor::Information));
+                }
+                NetworkEvent::StorageItemList { items } => {
+                    let storage = self.client_state.follow_mut(client_state().storage_items());
+                    let new_items: Vec<_> = items.into_iter().map(|item| {
+                        self.async_loader.request_inventory_item_metadata_load(item)
+                    }).collect();
+                    storage.extend(new_items);
+                }
             }
         }
 
@@ -2054,7 +2604,7 @@ impl Client {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Inventory) {
                             true => self.interface.close_window_with_class(WindowClass::Inventory),
-                            false => self.interface.open_window(InventoryWindow::new(client_state().inventory().items())),
+                            false => self.interface.open_window(InventoryWindow::new(client_state().inventory().items(), this_player().manually_asserted())),
                         }
                     }
                 }
@@ -2128,6 +2678,93 @@ impl Client {
                             )),
                         }
                     }
+                }
+                InputEvent::TogglePartyWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Party) {
+                            true => self.interface.close_window_with_class(WindowClass::Party),
+                            false => self.interface.open_window(PartyWindow::new(client_state().party_members())),
+                        }
+                    }
+                }
+                InputEvent::ToggleGuildWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Guild) {
+                            true => self.interface.close_window_with_class(WindowClass::Guild),
+                            false => self.interface.open_window(GuildWindow::new(client_state().guild_members())),
+                        }
+                    }
+                }
+                InputEvent::ToggleQuestWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Quest) {
+                            true => self.interface.close_window_with_class(WindowClass::Quest),
+                            false => self.interface.open_window(QuestWindow::new(client_state().quest_entries())),
+                        }
+                    }
+                }
+                InputEvent::ToggleMinimapWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Minimap) {
+                            true => self.interface.close_window_with_class(WindowClass::Minimap),
+                            false => {
+                                self.interface.open_window(MinimapWindow::new("Current Map".to_string(), 256, 256));
+                            }
+                        }
+                    }
+                }
+                InputEvent::TogglePetWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::PetInfo) {
+                            true => self.interface.close_window_with_class(WindowClass::PetInfo),
+                            false => self.interface.open_window(PetInfoWindow::new(None, None)),
+                        }
+                    }
+                }
+                InputEvent::ToggleMailWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Mail) {
+                            true => self.interface.close_window_with_class(WindowClass::Mail),
+                            false => self.interface.open_window(MailWindow),
+                        }
+                    }
+                }
+                InputEvent::ToggleStorageWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::Storage) {
+                            true => {
+                                self.interface.close_window_with_class(WindowClass::Storage);
+                                let _ = self.networking_system.close_storage();
+                            }
+                            false => self.interface.open_window(StorageWindow::new(client_state().storage_items())),
+                        }
+                    }
+                }
+                InputEvent::ToggleStatusEffectsWindow => {
+                    if self.client_state.try_follow(this_entity()).is_some() {
+                        match self.interface.is_window_with_class_open(WindowClass::StatusEffects) {
+                            true => self.interface.close_window_with_class(WindowClass::StatusEffects),
+                            false => self.interface.open_window(StatusEffectsWindow::new(client_state().active_status_effects())),
+                        }
+                    }
+                }
+                InputEvent::ToggleSit => {
+                    if let Some(entity) = self.client_state.try_follow(this_entity()) {
+                        if entity.is_sitting() {
+                            let _ = self.networking_system.stand_up();
+                        } else {
+                            let _ = self.networking_system.sit_down();
+                        }
+                    }
+                }
+                InputEvent::SendEmotion { emotion } => {
+                    let _ = self.networking_system.send_emotion(emotion);
+                }
+                InputEvent::FeedPet => {
+                    let _ = self.networking_system.pet_command(1); // 1 = feed
+                }
+                InputEvent::FeedHomunculus => {
+                    let _ = self.networking_system.pet_command(1); // feed homunculus via same command
                 }
                 InputEvent::CloseTopWindow => self.interface.close_top_window(&self.client_state),
                 InputEvent::ToggleShowInterface => self.show_interface = !self.show_interface,
@@ -2253,6 +2890,27 @@ impl Client {
                         continue;
                     }
 
+                    // Handle whisper: /w "name" message or /whisper "name" message
+                    if let Some(whisper_text) = text.strip_prefix("/w ").or_else(|| text.strip_prefix("/whisper ")) {
+                        if let Some((name, message)) = parse_whisper_target(whisper_text) {
+                            let _ = self.networking_system.send_whisper(&name, &message);
+                            self.client_state
+                                .follow_mut(client_state().chat_messages())
+                                .push(ChatMessage::new(
+                                    format!("To {name}: {message}"),
+                                    MessageColor::Whisper,
+                                ));
+                        } else {
+                            self.client_state
+                                .follow_mut(client_state().chat_messages())
+                                .push(ChatMessage::new(
+                                    "Usage: /w \"name\" message".to_string(),
+                                    MessageColor::Error,
+                                ));
+                        }
+                        continue;
+                    }
+
                     let _ = self
                         .networking_system
                         .send_chat_message(self.client_state.follow(client_state().player_name()), &text);
@@ -2271,6 +2929,17 @@ impl Client {
                     if option == -1 {
                         self.interface.close_window_with_class(WindowClass::Dialog);
                     }
+                }
+                InputEvent::SubmitNpcNumberInput { npc_id } => {
+                    let input = self.client_state.follow(client_state().dialog_window().input_text()).clone();
+                    let value = input.trim().parse::<i32>().unwrap_or(0);
+                    let _ = self.networking_system.npc_number_input(npc_id, value);
+                    self.client_state.follow_mut(client_state().dialog_window()).input_text.clear();
+                }
+                InputEvent::SubmitNpcStringInput { npc_id } => {
+                    let input = self.client_state.follow(client_state().dialog_window().input_text()).clone();
+                    let _ = self.networking_system.npc_string_input(npc_id, input);
+                    self.client_state.follow_mut(client_state().dialog_window()).input_text.clear();
                 }
                 InputEvent::MoveItem { source, destination, item } => match (source, destination) {
                     (ItemSource::Inventory, ItemSource::Equipment { position }) => {
@@ -2302,27 +2971,27 @@ impl Client {
                 },
                 InputEvent::CastSkill { slot } => {
                     if let Some(skill) = self.client_state.follow(client_state().hotbar()).get_skill_in_slot(slot).as_ref() {
-                        match skill.skill_type {
-                            SkillType::Passive => {}
-                            SkillType::SelfCast => match skill.skill_id == ROLLING_CUTTER_ID {
-                                true => {
-                                    let _ = self.networking_system.cast_channeling_skill(
-                                        skill.skill_id,
-                                        skill.skill_level,
-                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                    );
-                                }
-                                false => {
-                                    let _ = self.networking_system.cast_skill(
-                                        skill.skill_id,
-                                        skill.skill_level,
-                                        self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                    );
-                                }
-                            },
-                            SkillType::Attack | SkillType::Support | SkillType::Ground | SkillType::Trap => {
-                                self.pending_skill_target = Some(skill.clone());
+                        let inf = skill.skill_inf;
+                        if inf.is_passive() {
+                            // Passive skills can't be activated
+                        } else if inf.is_self_only() {
+                            // Self-only skill — cast immediately on self
+                            if skill.skill_id == ROLLING_CUTTER_ID {
+                                let _ = self.networking_system.cast_channeling_skill(
+                                    skill.skill_id,
+                                    skill.skill_level,
+                                    self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
+                                );
+                            } else {
+                                let _ = self.networking_system.cast_skill(
+                                    skill.skill_id,
+                                    skill.skill_level,
+                                    self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
+                                );
                             }
+                        } else {
+                            // Attack, Support, Ground, or Trap — needs a target
+                            self.pending_skill_target = Some(skill.clone());
                         }
                     }
                 }
@@ -2374,8 +3043,39 @@ impl Client {
                 InputEvent::SellItems { items } => {
                     let _ = self.networking_system.sell_items(items);
                 }
+                InputEvent::UseItem { item_index } => {
+                    // Use item on self (AccountId(0) means self)
+                    let _ = self.networking_system.use_item(item_index, AccountId(0));
+                }
+                InputEvent::DropItem { item_index, amount } => {
+                    let _ = self.networking_system.drop_item(item_index, amount);
+                }
+                InputEvent::SkillUp { skill_id } => {
+                    let _ = self.networking_system.skill_up(skill_id);
+                }
                 InputEvent::StatUp { stat_type } => {
                     let _ = self.networking_system.request_stat_up(stat_type);
+                }
+                InputEvent::RespondToTrade { accept } => {
+                    let _ = self.networking_system.trade_respond(accept);
+                    self.interface.close_window_with_class(WindowClass::TradeRequest);
+                }
+                InputEvent::TradeCancel => {
+                    let _ = self.networking_system.trade_cancel();
+                }
+                InputEvent::TradeLock => {
+                    let _ = self.networking_system.trade_lock();
+                }
+                InputEvent::TradeComplete => {
+                    let _ = self.networking_system.trade_commit();
+                }
+                InputEvent::AcceptPartyInvite { party_id } => {
+                    let _ = self.networking_system.party_respond(party_id, true);
+                    self.interface.close_window_with_class(WindowClass::PartyInvite);
+                }
+                InputEvent::RejectPartyInvite { party_id } => {
+                    let _ = self.networking_system.party_respond(party_id, false);
+                    self.interface.close_window_with_class(WindowClass::PartyInvite);
                 }
                 #[cfg(feature = "debug")]
                 InputEvent::ReloadLanguage => {
@@ -3155,6 +3855,7 @@ impl Client {
                         current_camera,
                         self.client_state.follow(client_state().world_theme()),
                         screen_size,
+                        client_tick,
                     );
                 }
 
@@ -3213,31 +3914,31 @@ impl Client {
                     if let Some(mouse_button) = input_report.mouse_click {
                         if let Some(skill) = self.pending_skill_target.take() {
                             if mouse_button == MouseButton::Left && !is_interface_hovered {
-                                match skill.skill_type {
-                                    SkillType::Attack => {
-                                        if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                            let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
-                                        }
+                                let inf = skill.skill_inf;
+                                if inf.is_ground() || inf.is_trap() {
+                                    // Ground/trap targeting — select a tile
+                                    if let PickerTarget::Tile { x, y } = input_report.mouse_target {
+                                        let _ = self
+                                            .networking_system
+                                            .cast_ground_skill(skill.skill_id, skill.skill_level, TilePosition { x, y });
                                     }
-                                    SkillType::Support => {
-                                        if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
-                                            let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
-                                        } else {
-                                            let _ = self.networking_system.cast_skill(
-                                                skill.skill_id,
-                                                skill.skill_level,
-                                                self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
-                                            );
-                                        }
+                                } else if inf.is_support() {
+                                    // Support targeting — select ally, or self if clicking ground
+                                    if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
+                                        let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
+                                    } else {
+                                        // No entity targeted — cast on self
+                                        let _ = self.networking_system.cast_skill(
+                                            skill.skill_id,
+                                            skill.skill_level,
+                                            self.client_state.follow(this_entity().manually_asserted()).get_entity_id(),
+                                        );
                                     }
-                                    SkillType::Ground | SkillType::Trap => {
-                                        if let PickerTarget::Tile { x, y } = input_report.mouse_target {
-                                            let _ = self
-                                                .networking_system
-                                                .cast_ground_skill(skill.skill_id, skill.skill_level, TilePosition { x, y });
-                                        }
+                                } else if inf.is_attack() {
+                                    // Attack targeting — select enemy
+                                    if let PickerTarget::Entity(entity_id) = input_report.mouse_target {
+                                        let _ = self.networking_system.cast_skill(skill.skill_id, skill.skill_level, entity_id);
                                     }
-                                    _ => {}
                                 }
                             }
                             // Right click or interface click: cancel targeting (skill already taken)
@@ -3334,6 +4035,7 @@ impl Client {
                         current_camera,
                         self.client_state.follow(client_state().world_theme()),
                         screen_size,
+                        client_tick,
                     );
                 }
 
@@ -3364,6 +4066,7 @@ impl Client {
                                         current_camera,
                                         self.client_state.follow(client_state().world_theme()),
                                         screen_size,
+                                        client_tick,
                                     );
                                 }
 
@@ -3750,5 +4453,29 @@ impl ApplicationHandler for Client {
         if *self.client_state.follow(client_state().audio_settings().mute_on_focus_loss()) {
             self.audio_engine.mute(true);
         }
+    }
+}
+
+/// Parse whisper target from `/w` command text.
+/// Supports: `/w "Name With Spaces" message` or `/w Name message`
+fn parse_whisper_target(text: &str) -> Option<(String, String)> {
+    let text = text.trim();
+    if text.starts_with('"') {
+        let end_quote = text[1..].find('"')?;
+        let name = text[1..=end_quote].to_string();
+        let rest = &text[end_quote + 2..];
+        let message = rest.trim_start().to_string();
+        if name.is_empty() || message.is_empty() {
+            return None;
+        }
+        Some((name, message))
+    } else {
+        let space = text.find(' ')?;
+        let name = text[..space].to_string();
+        let message = text[space + 1..].trim_start().to_string();
+        if name.is_empty() || message.is_empty() {
+            return None;
+        }
+        Some((name, message))
     }
 }

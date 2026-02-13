@@ -5,6 +5,7 @@ use crate::state::ClientState;
 use crate::state::theme::InterfaceThemeType;
 
 /// Window displayed when viewing a player vendor's shop.
+#[allow(dead_code)]
 pub struct VendingWindow;
 
 impl CustomWindow<ClientState> for VendingWindow {

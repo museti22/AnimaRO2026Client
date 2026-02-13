@@ -6,4 +6,7 @@ pub enum MessageColor {
     Server,
     Error,
     Information,
+    Whisper,
+    Party,
+    Guild,
 }

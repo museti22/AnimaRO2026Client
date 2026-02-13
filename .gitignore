@@ -14,8 +14,9 @@ korangar/*.7z
 korangar/*.grf
 korangar/GRF DESCOMPRIMIDO/
 
-# GRF files at root
+# GRF files and decompressed data at root
 *.grf
+GRF DESCOMPRIMIDO/
 
 # Logs
 *.log

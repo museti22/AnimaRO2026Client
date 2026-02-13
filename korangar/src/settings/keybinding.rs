@@ -307,6 +307,10 @@ pub struct KeybindingSettings {
     pub toggle_skill_tree: BoundKey,
     pub toggle_stats: BoundKey,
     pub toggle_friend_list: BoundKey,
+    pub toggle_party: BoundKey,
+    pub toggle_guild: BoundKey,
+    pub toggle_quest: BoundKey,
+    pub toggle_minimap: BoundKey,
 }
 
 impl Default for KeybindingSettings {
@@ -327,6 +331,10 @@ impl Default for KeybindingSettings {
             toggle_skill_tree: BoundKey::T,
             toggle_stats: BoundKey::A,
             toggle_friend_list: BoundKey::Z,
+            toggle_party: BoundKey::P,
+            toggle_guild: BoundKey::G,
+            toggle_quest: BoundKey::U,
+            toggle_minimap: BoundKey::M,
         }
     }
 }
@@ -400,6 +408,18 @@ impl KeybindingSettings {
             }
             if self.toggle_friend_list == bound_key {
                 return Some(InputEvent::ToggleFriendListWindow);
+            }
+            if self.toggle_party == bound_key {
+                return Some(InputEvent::TogglePartyWindow);
+            }
+            if self.toggle_guild == bound_key {
+                return Some(InputEvent::ToggleGuildWindow);
+            }
+            if self.toggle_quest == bound_key {
+                return Some(InputEvent::ToggleQuestWindow);
+            }
+            if self.toggle_minimap == bound_key {
+                return Some(InputEvent::ToggleMinimapWindow);
             }
         }
         None

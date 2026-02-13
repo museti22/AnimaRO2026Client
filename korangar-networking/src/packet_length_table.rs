@@ -73,16 +73,24 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x00E6, 3),
         (0x00EA, 5),
         (0x00EB, 2),
+        (0x00EC, 3),  // ZC_CONCLUDE_EXCHANGE
         (0x00ED, 2),
+        (0x00EE, 2),  // ZC_CANCEL_EXCHANGE
         (0x00EF, 2),
+        (0x00F0, 3),  // ZC_EXEC_EXCHANGE
+        (0x00F2, 6),  // ZC_NOTIFY_STOREITEM_COUNTINFO
         (0x00F3, -1),
         (0x00F5, 11),
         (0x00F7, 17),
+        (0x00F8, 2),  // ZC_CLOSE_STORE
         (0x00FB, -1),
         (0x00FD, 27),
+        (0x00FF, 10),  // CZ_JOIN_GROUP (party invite response)
         (0x0101, 6),
         (0x0102, 6),
         (0x0104, 79),
+        (0x0105, 31),  // ZC_DELETE_MEMBER_FROM_GROUP
+        (0x0107, 12),  // ZC_NOTIFY_POSITION_TO_GROUPM
         (0x0108, -1),
         (0x0109, -1),
         (0x0112, 4),
@@ -90,8 +98,11 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0114, 31),
         (0x0115, 35),
         (0x0116, 17),
+        (0x0117, 18),  // ZC_NOTIFY_GROUNDSKILL
         (0x0118, 2),
         (0x0119, 13),
+        (0x0121, 14),  // ZC_NOTIFY_CARTITEM_COUNTINFO
+        (0x0125, 8),   // ZC_DELETE_ITEM_FROM_CART
         (0x011D, 2),
         (0x011F, 16),
         (0x012A, 2),
@@ -99,6 +110,8 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x012F, -1),
         (0x0130, 6),
         (0x0138, 3),
+        (0x013A, 4),   // ZC_ATTACK_RANGE
+        (0x013B, 4),   // ZC_ACTION_FAILURE
         (0x013F, 26),
         (0x0145, 19),
         (0x0147, 39),
@@ -127,11 +140,13 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0177, -1),
         (0x017B, -1),
         (0x017E, -1),
+        (0x017F, -1),  // ZC_GUILD_CHAT
         (0x0180, 6),
         (0x0182, 106),
         (0x0183, 10),
         (0x0185, 34),
         (0x0187, 6),
+        (0x0189, 4),   // ZC_NOTIFY_MAPINFO
         (0x018A, 4),
         (0x018B, 4),
         (0x0190, 23),
@@ -143,12 +158,15 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x019D, 6),
         (0x019F, 6),
         (0x01A1, 3),
-        (0x01A3, 5),
+        (0x01A2, 37),
+        (0x01A3, 7),
+        (0x01A4, 11),
         (0x01A5, 26),
         (0x01A6, -1),
         (0x01A7, 4),
         (0x01A8, 4),
         (0x01A9, 6),
+        (0x01AA, 10),
         (0x01AC, 6),
         (0x01AD, -1),
         (0x01AF, 4),
@@ -198,6 +216,8 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x01F0, -1),
         (0x01F1, -1),
         (0x01F3, 10),
+        (0x01F4, 32),  // ZC_REQ_EXCHANGE_ITEM
+        (0x01F5, 9),   // ZC_ACK_EXCHANGE_ITEM
         (0x01F6, 34),
         (0x01F8, 2),
         (0x01F9, 6),
@@ -209,6 +229,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0202, 5),
         (0x0203, 10),
         (0x0204, 18),
+        (0x0206, 35),  // ZC_FRIENDS_STATE
         (0x0207, 34),
         (0x0208, 14),
         (0x0209, 36),
@@ -588,6 +609,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0809, 50),
         (0x080A, 18),
         (0x080B, 6),
+        (0x080E, 14),  // ZC_NOTIFY_HP_TO_GROUPM
         (0x0810, 3),
         (0x0811, -1),
         (0x0812, 8),
@@ -745,6 +767,8 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x09DB, -1),
         (0x09DC, -1),
         (0x09DD, -1),
+        (0x09DE, -1),  // ZC_WHISPER - variable length
+        (0x09DF, 7),   // ZC_ACK_WHISPER
         (0x09E6, 22),
         (0x09E7, 3),
         (0x09E8, 11),
@@ -816,6 +840,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0A9C, 2),
         (0x0A9D, 4),
         (0x0AA5, -1),
+        (0x0ABD, 10),  // ZC_PARTY_MEMBER_INFO (account_id+job+level)
         (0x0AC0, 26),
         (0x0AC1, 26),
         (0x0ACC, 18),
@@ -826,6 +851,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0AEF, 2),
         (0x0AF0, 10),
         (0x0AF4, 11),
+        (0x0B42, 62), // ZC_ADD_EXCHANGE_ITEM
         (0x0B4C, 2),
         (0x0B93, 12),
     ];

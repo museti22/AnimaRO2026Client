@@ -12,6 +12,42 @@ use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, client_state};
 use crate::world::{Player, PlayerPathExt};
 
+struct ExpSelector<C, N> {
+    current_path: C,
+    next_path: N,
+    text: UnsafeCell<String>,
+}
+
+impl<C, N> ExpSelector<C, N> {
+    fn new(current_path: C, next_path: N) -> Self {
+        Self {
+            current_path,
+            next_path,
+            text: UnsafeCell::default(),
+        }
+    }
+}
+
+impl<C, N> Selector<ClientState, String> for ExpSelector<C, N>
+where
+    C: Path<ClientState, u64>,
+    N: Path<ClientState, u64>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let current = *self.current_path.follow(state).unwrap();
+        let next = *self.next_path.follow(state).unwrap();
+        let percent = if next > 0 {
+            (current as f64 / next as f64 * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+        unsafe {
+            *self.text.get() = format!("{current} / {next} ({percent:.1}%)");
+            Some(self.text.as_ref_unchecked())
+        }
+    }
+}
+
 struct StatTextSelector<A> {
     bonus_path: A,
     last_value: Cell<Option<i32>>,
@@ -186,12 +222,131 @@ where
                         },
                     ),
                 },
+                split! {
+                    children: (
+                        text! {
+                            text: "Skill Points",
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: PartialEqDisplaySelector::new(self.player_path.skill_points()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
                 stat_row!(strength_text, strength, bonus_strength, strength_stat_points_cost, Strength),
                 stat_row!(agility_text, agility, bonus_agility, agility_stat_points_cost, Agility),
                 stat_row!(vitality_text, vitality, bonus_vitality, vitality_stat_points_cost, Vitality),
                 stat_row!(intelligence_text, intelligence, bonus_intelligence, intelligence_stat_points_cost, Intelligence),
                 stat_row!(dexterity_text, dexterity, bonus_dexterity, dexterity_stat_points_cost, Dexterity),
                 stat_row!(luck_text, luck, bonus_luck, luck_stat_points_cost, Luck),
+                split! {
+                    children: (
+                        text! { text: "ATK", overflow_behavior: OverflowBehavior::Shrink },
+                        text! {
+                            text: PartialEqDisplaySelector::new(self.player_path.attack1()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
+                split! {
+                    children: (
+                        text! { text: "DEF", overflow_behavior: OverflowBehavior::Shrink },
+                        text! {
+                            text: PartialEqDisplaySelector::new(self.player_path.defense1()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
+                split! {
+                    children: (
+                        text! { text: "MATK", overflow_behavior: OverflowBehavior::Shrink },
+                        text! {
+                            text: PartialEqDisplaySelector::new(self.player_path.magic_attack1()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
+                split! {
+                    children: (
+                        text! { text: "MDEF", overflow_behavior: OverflowBehavior::Shrink },
+                        text! {
+                            text: PartialEqDisplaySelector::new(self.player_path.magic_defense1()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
+                split! {
+                    children: (
+                        text! { text: "HIT", overflow_behavior: OverflowBehavior::Shrink },
+                        text! {
+                            text: PartialEqDisplaySelector::new(self.player_path.hit()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
+                split! {
+                    children: (
+                        text! { text: "FLEE", overflow_behavior: OverflowBehavior::Shrink },
+                        text! {
+                            text: PartialEqDisplaySelector::new(self.player_path.flee1()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
+                split! {
+                    children: (
+                        text! { text: "CRIT", overflow_behavior: OverflowBehavior::Shrink },
+                        text! {
+                            text: PartialEqDisplaySelector::new(self.player_path.critical()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
+                split! {
+                    children: (
+                        text! { text: "ASPD", overflow_behavior: OverflowBehavior::Shrink },
+                        text! {
+                            text: PartialEqDisplaySelector::new(self.player_path.attack_speed()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
+                split! {
+                    children: (
+                        text! {
+                            text: "Base EXP",
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: ExpSelector::new(self.player_path.base_experience(), self.player_path.next_base_experience()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
+                split! {
+                    children: (
+                        text! {
+                            text: "Job EXP",
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                        text! {
+                            text: ExpSelector::new(self.player_path.job_experience(), self.player_path.next_job_experience()),
+                            horizontal_alignment: HorizontalAlignment::Right { offset: 5.0, border: 5.0 },
+                            overflow_behavior: OverflowBehavior::Shrink,
+                        },
+                    ),
+                },
             ),
         }
     }

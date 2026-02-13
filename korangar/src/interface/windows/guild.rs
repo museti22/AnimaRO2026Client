@@ -53,7 +53,7 @@ where
                     self.elements.push(ErasedElement::new(collapsable! {
                         text: name_path,
                         children: (
-                            text! { text: "Position: TODO" },
+                            text! { text: "Position: (not available)" },
                         ),
                     }));
                 }

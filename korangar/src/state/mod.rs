@@ -18,11 +18,11 @@ use korangar_interface::element::StateElement;
 use korangar_interface::layout::tooltip::TooltipTheme;
 use korangar_interface::theme::ThemePathGetter;
 use korangar_interface::window::{StateWindow, WindowTheme};
-use korangar_networking::{MessageColor, SellItem, ShopItem};
+use korangar_networking::{InventoryItem, MessageColor, SellItem, ShopItem};
 use localization::Localization;
 #[cfg(feature = "debug")]
 use ragnarok_formats::map::{EffectSource, LightSource, MapData, SoundSource};
-use ragnarok_packets::{CharacterId, CharacterServerInformation, EntityId, Friend};
+use ragnarok_packets::{AccountId, CharacterId, CharacterServerInformation, EntityId, Friend};
 #[cfg(feature = "debug")]
 use rust_state::{ManuallyAssertExt, VecIndexExt};
 use rust_state::{Path, RustState, Selector};
@@ -77,6 +77,173 @@ impl ChatMessage {
 pub enum BufferedAction {
     AttackEntity { entity_id: EntityId },
     PickUpItem { entity_id: EntityId },
+}
+
+/// An item in a trade window.
+#[derive(Debug, Clone, RustState, StateElement)]
+pub struct TradeItem {
+    pub item_id: u32,
+    pub amount: u32,
+    pub name: String,
+    pub identified: bool,
+    pub refine: u8,
+    pub refinement_level: u8,
+}
+
+/// State of a player-to-player trade.
+#[derive(Debug, Clone, Default, RustState, StateElement)]
+pub struct TradeState {
+    pub player_items: Vec<TradeItem>,
+    pub partner_items: Vec<TradeItem>,
+    pub player_zeny: u32,
+    pub partner_zeny: u32,
+    pub player_locked: bool,
+    pub partner_locked: bool,
+}
+
+impl TradeState {
+    pub fn clear(&mut self) {
+        self.player_items.clear();
+        self.partner_items.clear();
+        self.player_zeny = 0;
+        self.partner_zeny = 0;
+        self.player_locked = false;
+        self.partner_locked = false;
+    }
+}
+
+/// A member of the player's party.
+#[derive(Debug, Clone, RustState, StateElement)]
+pub struct PartyMember {
+    pub account_id: AccountId,
+    pub name: String,
+    pub health_points: i32,
+    pub maximum_health_points: i32,
+    pub x: i16,
+    pub y: i16,
+    pub job: i16,
+    pub level: i16,
+}
+
+impl Default for PartyMember {
+    fn default() -> Self {
+        Self {
+            account_id: AccountId(0),
+            name: String::new(),
+            health_points: 0,
+            maximum_health_points: 0,
+            x: 0,
+            y: 0,
+            job: 0,
+            level: 0,
+        }
+    }
+}
+
+/// A member of the player's guild.
+#[derive(Debug, Clone, RustState, StateElement)]
+pub struct GuildMember {
+    pub name: String,
+}
+
+/// An entry in the quest log.
+#[derive(Debug, Clone, RustState, StateElement)]
+pub struct QuestEntry {
+    pub name: String,
+}
+
+/// Information about the player's pet.
+#[derive(Debug, Clone)]
+pub struct PetInfo {
+    pub name: String,
+    pub level: u16,
+    pub class_id: u16,
+    pub intimacy: u16,
+    pub fullness: u16,
+}
+
+/// An active status effect (buff/debuff) on the player.
+#[derive(Debug, Clone, RustState, StateElement)]
+pub struct ActiveStatusEffect {
+    /// Status effect index (matches server status_index).
+    pub status_index: u16,
+    /// Human-readable name of the effect.
+    pub name: String,
+    /// Duration in milliseconds (0 = permanent until removed).
+    pub duration_ms: u32,
+    /// Timestamp (Instant) when this effect was applied.
+    #[hidden_element]
+    pub applied_at: std::time::Instant,
+}
+
+impl ActiveStatusEffect {
+    /// Returns the remaining duration as a formatted string.
+    pub fn remaining_text(&self) -> String {
+        if self.duration_ms == 0 {
+            return String::new();
+        }
+        let elapsed = self.applied_at.elapsed().as_millis() as u32;
+        if elapsed >= self.duration_ms {
+            return "expired".to_string();
+        }
+        let remaining_ms = self.duration_ms - elapsed;
+        let secs = remaining_ms / 1000;
+        if secs >= 60 {
+            format!("{}m {}s", secs / 60, secs % 60)
+        } else {
+            format!("{}s", secs)
+        }
+    }
+}
+
+/// Map a status_index to a human-readable name.
+pub fn status_effect_name(status_index: u16) -> &'static str {
+    match status_index {
+        1 => "Provoke",
+        2 => "Endure",
+        3 => "Hiding",
+        5 => "Blessing",
+        6 => "Increase AGI",
+        10 => "Sight",
+        12 => "Angelus",
+        19 => "Poison",
+        20 => "Freeze",
+        21 => "Stun",
+        22 => "Sleep",
+        25 => "Stone Curse",
+        27 => "Two Hand Quicken",
+        28 => "Auto Counter",
+        29 => "Impositio Manus",
+        30 => "Suffragium",
+        32 => "Maximize Power",
+        34 => "Adrenaline Rush",
+        35 => "Weapon Perfection",
+        36 => "Over Thrust",
+        37 => "Energy Coat",
+        38 => "Movespeed Potion",
+        41 => "Aspd Potion",
+        66 => "Kyrie Eleison",
+        67 => "Magnificat",
+        68 => "Gloria",
+        76 => "Quagmire",
+        104 => "Defender",
+        140 => "Concentration",
+        _ => "",
+    }
+}
+
+/// Information about the player's homunculus.
+#[derive(Debug, Clone)]
+pub struct HomunculusInfo {
+    pub name: String,
+    pub level: u16,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub sp: i32,
+    pub max_sp: i32,
+    pub intimacy: u16,
+    pub hunger: u16,
+    pub alive: bool,
 }
 
 impl BufferedAction {
@@ -138,6 +305,19 @@ pub struct ClientState {
     friend_list_window: FriendListWindowState,
     /// Internal state of the dialog window.
     dialog_window: DialogWindowState,
+    /// State of the current trade (player-to-player).
+    trade_state: TradeState,
+    /// Party member list.
+    party_members: Vec<PartyMember>,
+    /// Guild member list.
+    guild_members: Vec<GuildMember>,
+    /// Quest log entries.
+    quest_entries: Vec<QuestEntry>,
+    /// Active status effects (buffs/debuffs) on the player.
+    active_status_effects: Vec<ActiveStatusEffect>,
+    /// Storage (Kafra) items.
+    #[hidden_element]
+    storage_items: Vec<InventoryItem<ResourceMetadata>>,
 
     /// All entities on the map.
     entities: Vec<Entity>,
@@ -386,6 +566,12 @@ impl ClientState {
             chat_window,
             friend_list_window,
             dialog_window,
+            trade_state: TradeState::default(),
+            party_members: Vec::new(),
+            guild_members: Vec::new(),
+            quest_entries: Vec::new(),
+            active_status_effects: Vec::new(),
+            storage_items: Vec::new(),
             entities: Vec::new(),
             dead_entities: Vec::new(),
             ground_items: Vec::new(),

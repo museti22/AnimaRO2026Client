@@ -4,11 +4,65 @@ use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{Element, ElementBox};
 use korangar_interface::layout::{Resolver, WindowLayout};
 use korangar_interface::window::{CustomWindow, Window};
-use rust_state::{Context, ManuallyAssertExt, Path, VecIndexExt};
+use rust_state::{Context, ManuallyAssertExt, Path, Selector, VecIndexExt};
 
 use crate::interface::windows::WindowClass;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, PartyMember, PartyMemberPathExt};
+
+struct LevelSelector<L> {
+    level_path: L,
+    text: std::cell::UnsafeCell<String>,
+}
+
+impl<L> LevelSelector<L> {
+    fn new(level_path: L) -> Self {
+        Self {
+            level_path,
+            text: std::cell::UnsafeCell::default(),
+        }
+    }
+}
+
+impl<L> Selector<ClientState, String> for LevelSelector<L>
+where
+    L: Path<ClientState, i16>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let level = self.level_path.follow(state).unwrap();
+        unsafe {
+            *self.text.get() = format!("Level: {}", level);
+            Some(self.text.as_ref_unchecked())
+        }
+    }
+}
+
+struct JobSelector<J> {
+    job_path: J,
+    text: std::cell::UnsafeCell<String>,
+}
+
+impl<J> JobSelector<J> {
+    fn new(job_path: J) -> Self {
+        Self {
+            job_path,
+            text: std::cell::UnsafeCell::default(),
+        }
+    }
+}
+
+impl<J> Selector<ClientState, String> for JobSelector<J>
+where
+    J: Path<ClientState, i16>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let job = self.job_path.follow(state).unwrap();
+        unsafe {
+            *self.text.get() = format!("Job: {}", job);
+            Some(self.text.as_ref_unchecked())
+        }
+    }
+}
 
 struct MemberList<A> {
     members_path: A,
@@ -48,15 +102,15 @@ where
             Ordering::Greater => {
                 for index in self.elements.len()..members.len() {
                     let member_path = self.members_path.index(index).manually_asserted();
-                    // Using a closure to format the text from multiple fields.
-                    // This is a bit tricky with the current macro system, so I'll just use the name for now.
                     let name_path = member_path.name();
+                    let level_selector = LevelSelector::new(member_path.level());
+                    let job_selector = JobSelector::new(member_path.job());
 
                     self.elements.push(ErasedElement::new(collapsable! {
                         text: name_path,
                         children: (
-                            text! { text: "Level: TODO" },
-                            text! { text: "Job: TODO" },
+                            text! { text: level_selector },
+                            text! { text: job_selector },
                         ),
                     }));
                 }
