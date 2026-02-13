@@ -81,8 +81,9 @@ mod character_slot_preview {
                             // fine to unwrap.
                             let character_information = state.try_get(&character_information_path).unwrap();
                             let character_id = character_information.character_id;
+                            let character_name = character_information.name.clone();
 
-                            queue.queue(InputEvent::DeleteCharacter { character_id });
+                            queue.queue(InputEvent::RequestDeleteCharacter { character_id, character_name });
                             queue.queue(Event::CloseOverlay);
                         },
                     },

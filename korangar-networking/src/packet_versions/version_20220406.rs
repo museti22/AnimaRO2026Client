@@ -10,7 +10,7 @@ use crate::event::{NetworkEventList, NoNetworkEvents};
 use crate::items::ItemQuantity;
 use crate::{
     CharacterServerLoginData, HotkeyState, InventoryItem, InventoryItemDetails, LoginServerLoginData, MessageColor, NetworkEvent,
-    NoMetadata, ShopItem, VendingItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
+    NoMetadata, QuestObjectiveData, ShopItem, VendingItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
 pub fn register_login_server_packets<Callback>(
@@ -604,20 +604,32 @@ where
         state: packet.state,
         remaining_in_milliseconds: packet.remaining_in_milliseconds,
     })?;
-    packet_handler.register(|packet: QuestNotificationPacket1| NetworkEvent::QuestAdded {
-        quest_id: packet.quest_id,
-        active: packet.active != 0,
+    packet_handler.register(|packet: QuestNotificationPacket1| {
+        let objectives: Vec<QuestObjectiveData> = packet
+            .objective_details
+            .iter()
+            .take(packet.objective_count as usize)
+            .filter(|obj| obj.mob_id != 0)
+            .map(|obj| QuestObjectiveData {
+                mob_name: obj.mob_name.trim_end_matches('\0').to_string(),
+                kill_count: obj.mob_count as u32,
+                total_count: obj.mob_count as u32,
+            })
+            .collect();
+        NetworkEvent::QuestAdded {
+            quest_id: packet.quest_id,
+            active: packet.active != 0,
+            objectives,
+        }
     })?;
     packet_handler.register(|packet: HuntingQuestNotificationPacket| -> NetworkEventList {
         let events: Vec<NetworkEvent> = packet
             .objective_details
             .iter()
-            .map(|obj| NetworkEvent::ChatMessage {
-                text: format!(
-                    "Hunting quest #{}: {}/{} (mob #{})",
-                    obj.quest_id, obj.current_count, obj.total_count, obj.mob_id
-                ),
-                color: MessageColor::Information,
+            .map(|obj| NetworkEvent::QuestObjectivesUpdated {
+                quest_id: obj.quest_id,
+                kill_count: obj.current_count as u32,
+                total_count: obj.total_count as u32,
             })
             .collect();
         events.into()
@@ -626,12 +638,10 @@ where
         let events: Vec<NetworkEvent> = packet
             .objective_details
             .iter()
-            .map(|obj| NetworkEvent::ChatMessage {
-                text: format!(
-                    "Quest #{} progress: {}/{} (mob #{})",
-                    obj.quest_id, obj.current_count, obj.total_count, obj.mob_id
-                ),
-                color: MessageColor::Information,
+            .map(|obj| NetworkEvent::QuestObjectivesUpdated {
+                quest_id: obj.quest_id,
+                kill_count: obj.current_count as u32,
+                total_count: obj.total_count as u32,
             })
             .collect();
         events.into()
@@ -640,7 +650,23 @@ where
         quest_id: packet.quest_id,
     })?;
     packet_handler.register(|packet: QuestListPacket| NetworkEvent::QuestList {
-        quests: packet.quests.into_iter().map(|q| (q.quest_id, q.active != 0)).collect(),
+        quests: packet
+            .quests
+            .into_iter()
+            .map(|q| {
+                let objectives: Vec<QuestObjectiveData> = q
+                    .objective_details
+                    .iter()
+                    .filter(|obj| obj.mob_id != 0)
+                    .map(|obj| QuestObjectiveData {
+                        mob_name: obj.mob_name.trim_end_matches('\0').to_string(),
+                        kill_count: obj.kill_count as u32,
+                        total_count: obj.total_count as u32,
+                    })
+                    .collect();
+                (q.quest_id, q.active != 0, objectives)
+            })
+            .collect(),
     })?;
     packet_handler.register(|packet: VisualEffectPacket| {
         let VisualEffectPacket { entity_id, effect } = packet;
@@ -910,8 +936,10 @@ where
             color: MessageColor::Error,
         },
     })?;
-    // UseSkillSuccessPacket: skill use animation confirmation - entity system handles visually
-    packet_handler.register_noop::<UseSkillSuccessPacket>()?;
+    // UseSkillSuccessPacket: skill cast completed — clear the casting bar on the source entity.
+    packet_handler.register(|packet: UseSkillSuccessPacket| NetworkEvent::SkillCastCancel {
+        entity_id: packet.source_entity,
+    })?;
     // ToUseSkillSuccessPacket: skill queued info - informational only
     packet_handler.register_noop::<ToUseSkillSuccessPacket>()?;
     packet_handler.register(|packet: NotifySkillUnitPacket| {
@@ -983,8 +1011,22 @@ where
         remaining_in_milliseconds: 0,
     })?;
     packet_handler.register_noop::<ReputationPacket>()?;
-    packet_handler.register_noop::<ClanInfoPacket>()?;
-    packet_handler.register_noop::<ClanOnlineCountPacket>()?;
+    packet_handler.register(|packet: ClanInfoPacket| NetworkEvent::ChatMessage {
+        text: format!(
+            "[Clan] {} (Master: {}, Map: {})",
+            packet.clan_name.trim_end_matches('\0'),
+            packet.clan_master.trim_end_matches('\0'),
+            packet.clan_map.trim_end_matches('\0'),
+        ),
+        color: MessageColor::Information,
+    })?;
+    packet_handler.register(|packet: ClanOnlineCountPacket| NetworkEvent::ChatMessage {
+        text: format!(
+            "[Clan] Members online: {}/{}",
+            packet.online_members, packet.maximum_members,
+        ),
+        color: MessageColor::Information,
+    })?;
     packet_handler.register(|packet: ChangeMapCellPacket| NetworkEvent::ChatMessage {
         text: format!(
             "[Map Cell] {} ({}, {}) changed to type {}",
@@ -995,7 +1037,23 @@ where
         ),
         color: MessageColor::Server,
     })?;
-    packet_handler.register_noop::<OpenMarketPacket>()?;
+    packet_handler.register(|packet: OpenMarketPacket| {
+        let items = packet
+            .items
+            .into_iter()
+            .map(|item| ShopItem {
+                metadata: NoMetadata,
+                item_id: ItemId(item.name_id),
+                item_type: item.item_type,
+                price: item.price,
+                quantity: item.quantity.into(),
+                weight: item.weight,
+                location: item.location,
+            })
+            .collect();
+
+        NetworkEvent::OpenShop { items }
+    })?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
         let items = packet

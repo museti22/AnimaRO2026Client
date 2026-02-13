@@ -146,12 +146,21 @@ pub struct GuildMember {
     pub name: String,
 }
 
+/// A single hunt objective within a quest.
+#[derive(Debug, Clone, RustState, StateElement)]
+pub struct QuestObjective {
+    pub mob_name: String,
+    pub kill_count: u32,
+    pub total_count: u32,
+}
+
 /// An entry in the quest log.
 #[derive(Debug, Clone, RustState, StateElement)]
 pub struct QuestEntry {
     pub quest_id: u32,
     pub name: String,
     pub active: bool,
+    pub objectives: Vec<QuestObjective>,
 }
 
 /// Cart (pushcart) info tracking.
@@ -370,6 +379,9 @@ pub struct ClientState {
     /// Unique id of the vending shop currently open.
     #[hidden_element]
     vending_unique_id: u32,
+    /// The account ID received from the server after login.
+    #[hidden_element]
+    account_id: AccountId,
     /// The name of the active character. This information is not available
     /// while playing if we don't save it here.
     player_name: String,
@@ -392,6 +404,10 @@ pub struct ClientState {
     switch_request: Option<usize>,
     /// Name of the character being created currently.
     create_character_name: String,
+    /// Hair style of the character being created currently.
+    create_character_hair_style: u16,
+    /// Hair color of the character being created currently.
+    create_character_hair_color: u16,
 
     /// Size of the Korangar window.
     window_size: ScreenSize,
@@ -516,6 +532,8 @@ impl ClientState {
             // TODO: This could be in a single struct.
             let switch_request = None;
             let create_character_name = String::new();
+            let create_character_hair_style = 0u16;
+            let create_character_hair_color = 0u16;
         });
 
         time_phase!("create friend list state", {
@@ -533,6 +551,7 @@ impl ClientState {
             let vending_items = Vec::default();
             let vending_account_id = AccountId(0);
             let vending_unique_id = 0u32;
+            let account_id = AccountId(0);
             let player_name = String::new();
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
@@ -613,6 +632,7 @@ impl ClientState {
             vending_items,
             vending_account_id,
             vending_unique_id,
+            account_id,
             player_name,
             hotbar,
             inventory,
@@ -622,6 +642,8 @@ impl ClientState {
             currently_deleting,
             switch_request,
             create_character_name,
+            create_character_hair_style,
+            create_character_hair_color,
             window_size,
             buffered_action,
             #[cfg(feature = "debug")]

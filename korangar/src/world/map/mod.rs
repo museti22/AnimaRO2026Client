@@ -236,6 +236,14 @@ impl Map {
         (tile.southwest_corner_height + tile.southeast_corner_height + tile.northwest_corner_height + tile.northeast_corner_height) / 4.0
     }
 
+    pub fn get_width(&self) -> u16 {
+        self.width
+    }
+
+    pub fn get_height(&self) -> u16 {
+        self.height
+    }
+
     pub fn get_world_position(&self, position: TilePosition) -> Option<Point3<f32>> {
         let height = Self::average_tile_height(self.get_tile(position)?);
 

@@ -9,6 +9,14 @@ use crate::{
     UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
+/// Objective data for a quest hunt target.
+#[derive(Debug, Clone)]
+pub struct QuestObjectiveData {
+    pub mob_name: String,
+    pub kill_count: u32,
+    pub total_count: u32,
+}
+
 /// An event triggered by one of the Ragnarok Online servers.
 #[derive(Debug)]
 pub enum NetworkEvent {
@@ -474,12 +482,19 @@ pub enum NetworkEvent {
     },
     /// Full quest list received from server.
     QuestList {
-        quests: Vec<(u32, bool)>,
+        quests: Vec<(u32, bool, Vec<QuestObjectiveData>)>,
     },
     /// A new quest was added.
     QuestAdded {
         quest_id: u32,
         active: bool,
+        objectives: Vec<QuestObjectiveData>,
+    },
+    /// Hunting quest objective progress updated.
+    QuestObjectivesUpdated {
+        quest_id: u32,
+        kill_count: u32,
+        total_count: u32,
     },
     /// A quest was removed/completed.
     QuestRemoved {

@@ -6,6 +6,7 @@ mod cache;
 mod character_creation;
 mod character_overview;
 mod character_selection;
+mod delete_character_confirm;
 mod chat;
 #[cfg(feature = "debug")]
 mod commands;
@@ -63,6 +64,7 @@ pub use self::cache::WindowCache;
 pub use self::character_creation::CharacterCreationWindow;
 pub use self::character_overview::CharacterOverviewWindow;
 pub use self::character_selection::CharacterSelectionWindow;
+pub use self::delete_character_confirm::DeleteCharacterConfirmWindow;
 pub use self::chat::{ChatTextBox, ChatWindow, ChatWindowState};
 #[cfg(feature = "debug")]
 pub use self::commands::CommandsWindow;
@@ -120,6 +122,7 @@ pub enum WindowClass {
     CharacterCreation,
     CharacterOverview,
     CharacterSelection,
+    DeleteCharacterConfirm,
     Dialog,
     GameSettings,
     InterfaceSettings,

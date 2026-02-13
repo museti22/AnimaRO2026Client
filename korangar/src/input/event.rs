@@ -113,7 +113,20 @@ pub enum InputEvent {
         slot: usize,
         /// Name of the new character.
         name: String,
+        /// Hair style of the new character.
+        hair_style: u16,
+        /// Hair color of the new character.
+        hair_color: u16,
     },
+    /// Request to delete a character (opens confirmation dialog).
+    RequestDeleteCharacter {
+        /// Id of the character to be deleted.
+        character_id: CharacterId,
+        /// Name of the character to be deleted.
+        character_name: String,
+    },
+    /// Cancel the delete character confirmation.
+    CancelDeleteCharacter,
     /// Delete a character.
     DeleteCharacter {
         /// Id of the character to be deleted.

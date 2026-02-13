@@ -71,8 +71,8 @@ use networking::{PacketHistory, PacketHistoryCallback};
 #[cfg(not(feature = "debug"))]
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
-    AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, HotbarSlot, SellItemsResult,
-    SkillId, TilePosition, UnitId, VendingPurchaseResult, WorldPosition,
+    AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, EffectId, HotbarSlot,
+    SellItemsResult, SkillId, TilePosition, UnitId, VendingPurchaseResult, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{Context, ManuallyAssertExt};
@@ -1130,7 +1130,9 @@ impl Client {
                         entity.set_sit(client_tick);
                     }
                 }
-                NetworkEvent::AccountId { .. } => {}
+                NetworkEvent::AccountId { account_id } => {
+                    *self.client_state.follow_mut(client_state().account_id()) = account_id;
+                }
                 NetworkEvent::CharacterList { characters } => {
                     self.audio_engine.play_sound_effect(self.main_menu_click_sound_effect);
 
@@ -1443,8 +1445,10 @@ impl Client {
                     // Close any remaining dialogs, shops, trade, and storage on map change.
                     self.interface.close_window_with_class(WindowClass::Dialog);
                     self.interface.close_window_with_class(WindowClass::Buy);
+                    self.interface.close_window_with_class(WindowClass::BuyCart);
                     self.interface.close_window_with_class(WindowClass::BuyOrSell);
                     self.interface.close_window_with_class(WindowClass::Sell);
+                    self.interface.close_window_with_class(WindowClass::SellCart);
                     self.interface.close_window_with_class(WindowClass::Trade);
                     self.interface.close_window_with_class(WindowClass::Storage);
 
@@ -1925,7 +1929,7 @@ impl Client {
                 NetworkEvent::SellingCompleted { result } => match result {
                     SellItemsResult::Success => {
                         // Clear the cart.
-                        self.client_state.follow_mut(client_state().buy_cart()).clear();
+                        self.client_state.follow_mut(client_state().sell_cart()).clear();
 
                         self.interface.close_window_with_class(WindowClass::Sell);
                         self.interface.close_window_with_class(WindowClass::SellCart);
@@ -2222,8 +2226,85 @@ impl Client {
                         ));
                 }
                 NetworkEvent::SpecialEffect { entity_id, effect_id } => {
-                    let _ = (entity_id, effect_id);
-                    // TODO: Play effect animation on entity
+                    // Map well-known EffectId variants to their .str effect files.
+                    let effect_path: Option<&str> = match effect_id {
+                        EffectId::Hit1 | EffectId::Hit2 | EffectId::Hit3 => Some("hit.str"),
+                        EffectId::Entry => Some("warpzone.str"),
+                        EffectId::Exit | EffectId::Warp => Some("warpzone.str"),
+                        EffectId::Endure => Some("endure.str"),
+                        EffectId::Sight => Some("sight.str"),
+                        EffectId::Stonecurse => Some("stonecurse.str"),
+                        EffectId::Fireball => Some("fireball.str"),
+                        EffectId::Firewall => Some("firewall.str"),
+                        EffectId::Frostdiver | EffectId::Frostdiver2 => Some("frostdiver.str"),
+                        EffectId::Lightbolt => Some("lightbolt.str"),
+                        EffectId::Thunderstorm => Some("thunderstorm.str"),
+                        EffectId::Incagility => Some("incagility.str"),
+                        EffectId::Blessing => Some("blessing.str"),
+                        EffectId::Kyrie => Some("kyrie.str"),
+                        EffectId::Magnus => Some("magnus.str"),
+                        EffectId::Pneuma => Some("pneuma1.str"),
+                        EffectId::Resurrection | EffectId::Revive => Some("resurrection.str"),
+                        EffectId::Earthspike => Some("earthspike.str"),
+                        EffectId::Sanctuary => Some("sanctuary.str"),
+                        EffectId::Aspersio => Some("aspersio.str"),
+                        EffectId::Stormgust => Some("stormgust.str"),
+                        EffectId::Meteorstorm => Some("meteorstorm.str"),
+                        EffectId::Quagmire => Some("quagmire.str"),
+                        EffectId::Heavensdrive => Some("heavensdrive.str"),
+                        EffectId::Concentration => Some("concentration.str"),
+                        EffectId::Lvup => Some("angel.str"),
+                        EffectId::Joblvup => Some("joblvup.str"),
+                        EffectId::Refineok => Some("bs_refinesuccess.str"),
+                        EffectId::Refinefail => Some("bs_refinefailed.str"),
+                        EffectId::Energycoat => Some("energycoat.str"),
+                        EffectId::Gloria => Some("gloria.str"),
+                        EffectId::Magnificat => Some("magnificat.str"),
+                        EffectId::Sonicblow => Some("sonicblow.str"),
+                        EffectId::Grandcross => Some("grandcross.str"),
+                        EffectId::Devotion => Some("devotion.str"),
+                        EffectId::Providence => Some("providence.str"),
+                        EffectId::Overthrust => Some("overthrust.str"),
+                        EffectId::Twohandquicken => Some("twohandquicken.str"),
+                        EffectId::Cloaking => Some("cloaking.str"),
+                        EffectId::Waterball | EffectId::Waterball2 => Some("waterball.str"),
+                        EffectId::Enchantpoison => Some("enchantpoison.str"),
+                        EffectId::Flamelauncher => Some("flamelauncher.str"),
+                        EffectId::Frostweapon => Some("frostweapon.str"),
+                        EffectId::Lightningloader => Some("lightningloader.str"),
+                        EffectId::Seismicweapon => Some("seismicweapon.str"),
+                        EffectId::Freeze | EffectId::Freezed => Some("freeze.str"),
+                        EffectId::Firepillar | EffectId::Firepillaron | EffectId::Firepillarbomb => Some("firepillar.str"),
+                        EffectId::Ganbantein => Some("ganbantein.str"),
+                        EffectId::Level99 | EffectId::Level99_2 | EffectId::Level99_3 => Some("level99.str"),
+                        _ => None,
+                    };
+
+                    if let Some(path) = effect_path {
+                        if let Ok(effect) = self.effect_loader.get_or_load(path, &self.texture_loader) {
+                            let frame_timer = effect.new_frame_timer();
+
+                            self.effect_holder.add_effect(Box::new(EffectWithLight::new(
+                                effect,
+                                frame_timer,
+                                EffectCenter::Entity(entity_id, Point3::new(0.0, 0.0, 0.0)),
+                                Vector3::new(0.0, 9.0, 0.0),
+                                PointLightId::new(entity_id.0),
+                                Vector3::new(0.0, 12.0, 0.0),
+                                Color::WHITE,
+                                50.0,
+                                false,
+                            )));
+                        }
+                    } else {
+                        #[cfg(feature = "debug")]
+                        print_debug!(
+                            "[{}] unhandled special effect {:?} on entity {:?}",
+                            "warning".yellow(),
+                            effect_id,
+                            entity_id
+                        );
+                    }
                 }
                 NetworkEvent::PartyInvite { party_id, party_name } => {
                     self.client_state
@@ -2464,23 +2545,41 @@ impl Client {
                 NetworkEvent::QuestList { quests } => {
                     let entries: Vec<_> = quests
                         .into_iter()
-                        .map(|(quest_id, active)| {
+                        .map(|(quest_id, active, obj_data)| {
+                            let objectives = obj_data
+                                .into_iter()
+                                .map(|o| crate::state::QuestObjective {
+                                    mob_name: o.mob_name,
+                                    kill_count: o.kill_count,
+                                    total_count: o.total_count,
+                                })
+                                .collect();
                             crate::state::QuestEntry {
                                 quest_id,
                                 name: format!("Quest #{}", quest_id),
                                 active,
+                                objectives,
                             }
                         })
                         .collect();
                     *self.client_state.follow_mut(client_state().quest_entries()) = entries;
                 }
-                NetworkEvent::QuestAdded { quest_id, active } => {
+                NetworkEvent::QuestAdded { quest_id, active, objectives: obj_data } => {
+                    let objectives = obj_data
+                        .into_iter()
+                        .map(|o| crate::state::QuestObjective {
+                            mob_name: o.mob_name,
+                            kill_count: o.kill_count,
+                            total_count: o.total_count,
+                        })
+                        .collect();
                     self.client_state
                         .follow_mut(client_state().quest_entries())
                         .push(crate::state::QuestEntry {
                             quest_id,
                             name: format!("Quest #{}", quest_id),
                             active,
+                            objectives,
                         });
                     self.client_state
                         .follow_mut(client_state().chat_messages())
@@ -2498,6 +2597,16 @@ impl Client {
                             format!("Quest #{} completed!", quest_id),
                             MessageColor::Information,
                         ));
+                }
+                NetworkEvent::QuestObjectivesUpdated { quest_id, kill_count, total_count } => {
+                    let entries = self.client_state.follow_mut(client_state().quest_entries());
+                    if let Some(entry) = entries.iter_mut().find(|e| e.quest_id == quest_id) {
+                        // Update the first objective that matches (hunting quests typically have one mob target).
+                        if let Some(obj) = entry.objectives.first_mut() {
+                            obj.kill_count = kill_count;
+                            obj.total_count = total_count;
+                        }
+                    }
                 }
                 NetworkEvent::NewMailStatus { has_new_mail } => {
                     *self.client_state.follow_mut(client_state().has_new_mail()) = has_new_mail;
@@ -2770,7 +2879,16 @@ impl Client {
                         match self.interface.is_window_with_class_open(WindowClass::Minimap) {
                             true => self.interface.close_window_with_class(WindowClass::Minimap),
                             false => {
-                                self.interface.open_window(MinimapWindow::new("Current Map".to_string(), 256, 256));
+                                let (map_width, map_height) = self
+                                    .map
+                                    .as_ref()
+                                    .map(|map| (map.get_width(), map.get_height()))
+                                    .unwrap_or((256, 256));
+                                self.interface.open_window(MinimapWindow::new(
+                                    "Minimap".to_string(),
+                                    map_width,
+                                    map_height,
+                                ));
                             }
                         }
                     }
@@ -2834,16 +2952,38 @@ impl Client {
                     let _ = self.networking_system.select_character(slot);
                 }
                 InputEvent::OpenCharacterCreationWindow { slot } => {
-                    // Clear the name before opening the window.
+                    // Clear the name and reset hair options before opening the window.
                     self.client_state.follow_mut(client_state().create_character_name()).clear();
+                    *self.client_state.follow_mut(client_state().create_character_hair_style()) = 0;
+                    *self.client_state.follow_mut(client_state().create_character_hair_color()) = 0;
 
-                    self.interface
-                        .open_window(CharacterCreationWindow::new(client_state().create_character_name(), slot))
+                    self.interface.open_window(CharacterCreationWindow::new(
+                        client_state().create_character_name(),
+                        client_state().create_character_hair_style(),
+                        client_state().create_character_hair_color(),
+                        slot,
+                    ))
                 }
-                InputEvent::CreateCharacter { slot, name } => {
-                    let _ = self.networking_system.create_character(slot, name);
+                InputEvent::CreateCharacter {
+                    slot,
+                    name,
+                    hair_style,
+                    hair_color,
+                } => {
+                    let _ = self.networking_system.create_character(slot, name, hair_style, hair_color);
+                }
+                InputEvent::RequestDeleteCharacter {
+                    character_id,
+                    character_name,
+                } => {
+                    self.interface
+                        .open_window(DeleteCharacterConfirmWindow::new(character_id, character_name));
+                }
+                InputEvent::CancelDeleteCharacter => {
+                    self.interface.close_window_with_class(WindowClass::DeleteCharacterConfirm);
                 }
                 InputEvent::DeleteCharacter { character_id } => {
+                    self.interface.close_window_with_class(WindowClass::DeleteCharacterConfirm);
                     if self.client_state.follow(client_state().currently_deleting()).is_none() {
                         let _ = self.networking_system.delete_character(character_id);
                         *self.client_state.follow_mut(client_state().currently_deleting()) = Some(character_id);
@@ -2987,6 +3127,24 @@ impl Client {
                         continue;
                     }
 
+                    // Handle traditional RO party chat prefix: %message
+                    if let Some(party_text) = text.strip_prefix('%') {
+                        if !party_text.is_empty() {
+                            let player_name = self.client_state.follow(client_state().player_name());
+                            let _ = self.networking_system.send_party_message(player_name, party_text);
+                        }
+                        continue;
+                    }
+
+                    // Handle traditional RO guild chat prefix: $message
+                    if let Some(guild_text) = text.strip_prefix('$') {
+                        if !guild_text.is_empty() {
+                            let player_name = self.client_state.follow(client_state().player_name());
+                            let _ = self.networking_system.send_guild_message(player_name, guild_text);
+                        }
+                        continue;
+                    }
+
                     let _ = self
                         .networking_system
                         .send_chat_message(self.client_state.follow(client_state().player_name()), &text);
@@ -3023,6 +3181,20 @@ impl Client {
                     }
                     (ItemSource::Equipment { .. }, ItemSource::Inventory) => {
                         let _ = self.networking_system.request_item_unequip(item.index);
+                    }
+                    (ItemSource::Inventory, ItemSource::Storage) => {
+                        // Move item from inventory to storage.
+                        // Network method expects wire-format index (stored value + 2).
+                        let wire_index = item.index.0 + 2;
+                        let amount = item.details.get_amount() as u32;
+                        let _ = self.networking_system.move_item_to_storage(wire_index, amount);
+                    }
+                    (ItemSource::Storage, ItemSource::Inventory) => {
+                        // Move item from storage to inventory.
+                        // Network method expects wire-format index (stored value + 2).
+                        let wire_index = item.index.0 + 2;
+                        let amount = item.details.get_amount() as u32;
+                        let _ = self.networking_system.move_item_from_storage(wire_index, amount);
                     }
                     _ => {}
                 },

@@ -62,7 +62,10 @@ where
     }
 }
 
-/// Handler for double-clicking an item (use item from inventory).
+/// Handler for double-clicking an item.
+/// - Inventory equippable items: equip them.
+/// - Inventory consumable/regular items: use them.
+/// - Equipment window items: unequip them.
 struct ItemUseHandler<P> {
     item_path: P,
     source: ItemSource,
@@ -73,13 +76,40 @@ where
     P: Path<ClientState, InventoryItem<ResourceMetadata>, false>,
 {
     fn handle_click(&self, state: &Context<ClientState>, queue: &mut EventQueue<ClientState>) {
-        if !matches!(self.source, ItemSource::Inventory) {
+        let Some(item) = state.try_get(&self.item_path) else {
             return;
-        }
-        if let Some(item) = state.try_get(&self.item_path) {
-            queue.queue(InputEvent::UseItem {
-                item_index: item.index,
-            });
+        };
+
+        match self.source {
+            ItemSource::Inventory => match &item.details {
+                InventoryItemDetails::Equippable { equip_position, .. } => {
+                    queue.queue(InputEvent::MoveItem {
+                        source: ItemSource::Inventory,
+                        destination: ItemSource::Equipment { position: *equip_position },
+                        item: item.clone(),
+                    });
+                }
+                InventoryItemDetails::Regular { .. } => {
+                    queue.queue(InputEvent::UseItem {
+                        item_index: item.index,
+                    });
+                }
+            },
+            ItemSource::Equipment { position } => {
+                queue.queue(InputEvent::MoveItem {
+                    source: ItemSource::Equipment { position },
+                    destination: ItemSource::Inventory,
+                    item: item.clone(),
+                });
+            }
+            ItemSource::Storage => {
+                // Double-click on a storage item withdraws it to inventory.
+                queue.queue(InputEvent::MoveItem {
+                    source: ItemSource::Storage,
+                    destination: ItemSource::Inventory,
+                    item: item.clone(),
+                });
+            }
         }
     }
 }

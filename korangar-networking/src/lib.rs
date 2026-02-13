@@ -30,7 +30,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 pub use self::entity::EntityData;
-pub use self::event::{DisconnectReason, NetworkEvent};
+pub use self::event::{DisconnectReason, NetworkEvent, QuestObjectiveData};
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem, VendingItem};
 pub use self::message::MessageColor;
@@ -709,9 +709,7 @@ where
         }
     }
 
-    pub fn create_character(&mut self, slot: usize, name: String) -> Result<(), NotConnectedError> {
-        let hair_color = 0;
-        let hair_style = 0;
+    pub fn create_character(&mut self, slot: usize, name: String, hair_style: u16, hair_color: u16) -> Result<(), NotConnectedError> {
         let start_job = 0;
         let sex = Sex::Male;
 

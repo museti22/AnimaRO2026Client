@@ -8,7 +8,7 @@ use rust_state::{Context, ManuallyAssertExt, Path, Selector, VecIndexExt};
 
 use crate::interface::windows::WindowClass;
 use crate::state::theme::InterfaceThemeType;
-use crate::state::{ClientState, QuestEntry, QuestEntryPathExt};
+use crate::state::{ClientState, QuestEntry, QuestEntryPathExt, QuestObjective};
 
 struct StatusSelector<A> {
     active_path: A,
@@ -32,6 +32,42 @@ where
         let active = self.active_path.follow(state).unwrap();
         unsafe {
             *self.text.get() = if *active { "Active".to_string() } else { "Inactive".to_string() };
+            Some(self.text.as_ref_unchecked())
+        }
+    }
+}
+
+struct ObjectivesSelector<O> {
+    objectives_path: O,
+    text: std::cell::UnsafeCell<String>,
+}
+
+impl<O> ObjectivesSelector<O> {
+    fn new(objectives_path: O) -> Self {
+        Self {
+            objectives_path,
+            text: std::cell::UnsafeCell::default(),
+        }
+    }
+}
+
+impl<O> Selector<ClientState, String> for ObjectivesSelector<O>
+where
+    O: Path<ClientState, Vec<QuestObjective>>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let objectives = self.objectives_path.follow(state)?;
+        unsafe {
+            let formatted = if objectives.is_empty() {
+                String::new()
+            } else {
+                objectives
+                    .iter()
+                    .map(|obj| format!("{}: {}/{}", obj.mob_name, obj.kill_count, obj.total_count))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            *self.text.get() = formatted;
             Some(self.text.as_ref_unchecked())
         }
     }
@@ -77,11 +113,13 @@ where
                     let quest_path = self.quests_path.index(index).manually_asserted();
                     let name_path = quest_path.name();
                     let status_selector = StatusSelector::new(quest_path.active());
+                    let objectives_selector = ObjectivesSelector::new(quest_path.objectives());
 
                     self.elements.push(ErasedElement::new(collapsable! {
                         text: name_path,
                         children: (
                             text! { text: status_selector },
+                            text! { text: objectives_selector },
                         ),
                     }));
                 }
