@@ -242,21 +242,58 @@ where
                             // Unwrap is safe here because of the bounds.
                             let cart = cart_path.follow(state).unwrap();
 
-                            cart.iter()
+                            let in_cart = cart
+                                .iter()
                                 .find(|purchase| purchase.item_id == item.item_id)
-                                .map(|purchase| matches!(item.quantity, ItemQuantity::Fixed(quantity) if quantity - purchase.metadata.1 < amount))
-                                .unwrap_or_else(|| matches!(item.quantity, ItemQuantity::Fixed(quantity) if quantity < amount))
+                                .map(|purchase| purchase.metadata.1)
+                                .unwrap_or(0);
+
+                            match item.quantity {
+                                ItemQuantity::Fixed(quantity) => quantity.saturating_sub(in_cart) < amount,
+                                ItemQuantity::Infinite => false,
+                            }
+                        })
+                    }
+
+                    fn disabled_cutoff_all<A, B>(item_path: A, cart_path: B) -> impl Selector<ClientState, bool>
+                    where
+                        A: Path<ClientState, ShopItem<ResourceMetadata>>,
+                        B: Path<ClientState, Vec<ShopItem<(ResourceMetadata, u32)>>>,
+                    {
+                        ComputedSelector::new_default(move |state: &ClientState| {
+                            let item = item_path.follow(state).unwrap();
+                            let cart = cart_path.follow(state).unwrap();
+
+                            let in_cart = cart
+                                .iter()
+                                .find(|purchase| purchase.item_id == item.item_id)
+                                .map(|purchase| purchase.metadata.1)
+                                .unwrap_or(0);
+
+                            match item.quantity {
+                                ItemQuantity::Fixed(quantity) => in_cart >= quantity,
+                                ItemQuantity::Infinite => in_cart >= 999,
+                            }
                         })
                     }
 
                     fn resolve_amount(
                         amount: ItemQuantity,
-                        _item: &ShopItem<ResourceMetadata>,
-                        _cart: &[ShopItem<(ResourceMetadata, u32)>],
+                        item: &ShopItem<ResourceMetadata>,
+                        cart: &[ShopItem<(ResourceMetadata, u32)>],
                     ) -> u32 {
+                        let already_in_cart = cart
+                            .iter()
+                            .find(|purchase| purchase.item_id == item.item_id)
+                            .map(|purchase| purchase.metadata.1)
+                            .unwrap_or(0);
+
                         match amount {
                             ItemQuantity::Fixed(count) => count,
-                            ItemQuantity::Infinite => todo!(),
+                            ItemQuantity::Infinite => match item.quantity {
+                                ItemQuantity::Fixed(available) => available.saturating_sub(already_in_cart),
+                                ItemQuantity::Infinite => 999u32.saturating_sub(already_in_cart),
+                            },
                         }
                     }
 
@@ -323,13 +360,11 @@ where
                                 disabled: disabled_cutoff(item_path, cart_path, 100),
                                 event: AddAction::new(item_path, cart_path, ItemQuantity::Fixed(100)),
                             },
-                            // TODO: Needs special treatment. Should be +All or +1000 depending on
-                            // the available quantity.
-                            // button! {
-                            //     text: "+All",
-                            //     disabled: DisabledCutoff::new(item_path, cart_path, 1),
-                            //     event: AddAction::new(item_path, cart_path, ItemQuantity::Infinite),
-                            // },
+                            button! {
+                                text: "+All",
+                                disabled: disabled_cutoff_all(item_path, cart_path),
+                                event: AddAction::new(item_path, cart_path, ItemQuantity::Infinite),
+                            },
                         ),
                     },);
 

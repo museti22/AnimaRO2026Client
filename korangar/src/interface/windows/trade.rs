@@ -1,17 +1,45 @@
+use korangar_interface::MouseMode;
 use korangar_interface::application::Size;
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::Element;
+use korangar_interface::event::{DropHandler, EventQueue};
 use korangar_interface::layout::area::Area;
 use korangar_interface::layout::{Resolver, WindowLayout};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
+use korangar_networking::InventoryItemDetails;
+use rust_state::Context;
 
 use crate::graphics::Color;
-use crate::input::InputEvent;
+use crate::input::{InputEvent, MouseInputMode};
+use crate::interface::resource::ItemSource;
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt, TradeState, client_state};
+
+/// Drop handler that adds an inventory item to the trade when dropped on the
+/// trade window.
+struct TradeDropHandler;
+
+impl DropHandler<ClientState> for TradeDropHandler {
+    fn handle_drop(&self, _: &Context<ClientState>, queue: &mut EventQueue<ClientState>, mouse_mode: &MouseMode<ClientState>) {
+        if let MouseMode::Custom {
+            mode: MouseInputMode::MoveItem { source: ItemSource::Inventory, item },
+        } = mouse_mode
+        {
+            let amount = match &item.details {
+                InventoryItemDetails::Regular { amount, .. } => *amount as u32,
+                _ => 1,
+            };
+
+            queue.queue(InputEvent::TradeAddItem {
+                inventory_index: item.index,
+                amount,
+            });
+        }
+    }
+}
 
 struct TradeLayoutInfo {
     area: Area,
@@ -19,7 +47,9 @@ struct TradeLayoutInfo {
     line_heights: Vec<f32>,
 }
 
-struct TradeItemsElement;
+struct TradeItemsElement {
+    drop_handler: TradeDropHandler,
+}
 
 impl TradeItemsElement {
     fn build_lines(trade_state: &TradeState) -> Vec<String> {
@@ -119,6 +149,18 @@ impl Element<ClientState> for TradeItemsElement {
         layout_info: &'a Self::LayoutInfo,
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
+        // Register drop handler so items can be dragged from inventory onto the
+        // trade window.
+        if let MouseMode::Custom {
+            mode: MouseInputMode::MoveItem { .. },
+        } = layout.get_mouse_mode()
+        {
+            if layout_info.area.check().any_mouse_mode().run(layout) {
+                layout.set_hovered();
+                layout.register_drop_handler(&self.drop_handler);
+            }
+        }
+
         let line_spacing = 4.0;
         let mut offset = 0.0;
 
@@ -178,7 +220,7 @@ impl CustomWindow<ClientState> for TradeWindow {
             elements: (
                 scroll_view! {
                     children: (
-                        TradeItemsElement,
+                        TradeItemsElement { drop_handler: TradeDropHandler },
                     ),
                 },
                 split! {

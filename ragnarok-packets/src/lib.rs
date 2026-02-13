@@ -4915,6 +4915,15 @@ pub struct TradeLockPacket {}
 #[header(0x00ED)]
 pub struct TradeCancelPacket {}
 
+/// CZ_ADD_EXCHANGE_ITEM (0x00E8) - Client adds an item to the trade window.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00E8)]
+pub struct TradeAddItemPacket {
+    pub index: InventoryIndex,
+    pub amount: u32,
+}
+
 /// CZ_EXEC_EXCHANGE_ITEM (0x00EF) - Client commits the final trade.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
@@ -5085,10 +5094,113 @@ pub struct GuildChatPacket {
     pub message: String,
 }
 
+/// CZ_REQUEST_CHAT_PARTY (0x0108) - Client sends a party chat message.
+/// Format: header(2) + len(2) + message(variable)
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0108)]
+#[variable_length]
+pub struct PartyChatSendPacket {
+    #[length_remaining_off_by_one]
+    pub message: String,
+}
+
+/// CZ_GUILD_CHAT (0x017E) - Client sends a guild chat message.
+/// Format: header(2) + len(2) + message(variable)
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x017E)]
+#[variable_length]
+pub struct GuildChatSendPacket {
+    #[length_remaining_off_by_one]
+    pub message: String,
+}
+
 /// CZ_UPGRADESKILL (0x0112) - Client requests to increase a skill level.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0112)]
 pub struct SkillUpPacket {
     pub skill_id: SkillId,
+}
+
+/// Sub-structure for items in a player vending shop list.
+/// Each entry is 22 bytes.
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct VendingItemInformation {
+    pub price: Price,
+    pub amount: u16,
+    pub index: u16,
+    pub item_type: u8,
+    pub item_id: ItemId,
+    pub is_identified: u8,
+    pub is_damaged: u8,
+    pub refine: u8,
+    pub card1: u16,
+    pub card2: u16,
+    pub card3: u16,
+    pub card4: u16,
+}
+
+/// ZC_PC_PURCHASE_ITEMLIST_FROMMC2 (0x0800) - Vending shop item list sent to
+/// buyer when they click on a vendor.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0800)]
+#[variable_length]
+pub struct VendingItemListPacket {
+    pub account_id: AccountId,
+    pub unique_id: u32,
+    #[repeating_remaining]
+    pub items: Vec<VendingItemInformation>,
+}
+
+/// Sub-structure for purchasing items from a vending shop.
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct VendingPurchaseItemInformation {
+    pub amount: u16,
+    pub index: u16,
+}
+
+/// CZ_PC_PURCHASE_ITEMLIST_FROMMC2 (0x0801) - Client requests to purchase
+/// items from a player vending shop.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0801)]
+#[variable_length]
+pub struct VendingPurchasePacket {
+    pub account_id: AccountId,
+    pub unique_id: u32,
+    pub items: Vec<VendingPurchaseItemInformation>,
+}
+
+/// Result of a vending purchase.
+#[derive(Debug, Clone, Copy, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[numeric_type(u8)]
+pub enum VendingPurchaseResult {
+    #[numeric_value(0)]
+    Success,
+    #[numeric_value(1)]
+    NotEnoughZeny,
+    #[numeric_value(2)]
+    Overweight,
+    #[numeric_value(3)]
+    StockExceeded,
+    #[numeric_value(4)]
+    DealCanceled,
+    #[numeric_value(5)]
+    InsufficientAmount,
+    #[numeric_value(6)]
+    OpenEquipWindow,
+}
+
+/// ZC_PC_PURCHASE_RESULT_FROMMC (0x0135) - Result of a vending purchase.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0135)]
+pub struct VendingPurchaseResultPacket {
+    pub result: VendingPurchaseResult,
 }

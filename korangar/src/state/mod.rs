@@ -18,7 +18,7 @@ use korangar_interface::element::StateElement;
 use korangar_interface::layout::tooltip::TooltipTheme;
 use korangar_interface::theme::ThemePathGetter;
 use korangar_interface::window::{StateWindow, WindowTheme};
-use korangar_networking::{InventoryItem, MessageColor, SellItem, ShopItem};
+use korangar_networking::{InventoryItem, MessageColor, SellItem, ShopItem, VendingItem};
 use localization::Localization;
 #[cfg(feature = "debug")]
 use ragnarok_formats::map::{EffectSource, LightSource, MapData, SoundSource};
@@ -149,7 +149,18 @@ pub struct GuildMember {
 /// An entry in the quest log.
 #[derive(Debug, Clone, RustState, StateElement)]
 pub struct QuestEntry {
+    pub quest_id: u32,
     pub name: String,
+    pub active: bool,
+}
+
+/// Cart (pushcart) info tracking.
+#[derive(Debug, Clone, Default, RustState, StateElement)]
+pub struct CartInfo {
+    pub current_count: i16,
+    pub maximum_count: i16,
+    pub current_weight: i32,
+    pub maximum_weight: i32,
 }
 
 /// Information about the player's pet.
@@ -318,6 +329,10 @@ pub struct ClientState {
     /// Storage (Kafra) items.
     #[hidden_element]
     storage_items: Vec<InventoryItem<ResourceMetadata>>,
+    /// Pushcart info (count/weight).
+    cart_info: CartInfo,
+    /// Whether the player has new unread mail.
+    has_new_mail: bool,
 
     /// All entities on the map.
     entities: Vec<Entity>,
@@ -346,6 +361,15 @@ pub struct ClientState {
     // TODO: Unhide this
     #[hidden_element]
     sell_cart: Vec<SellItem<(ResourceMetadata, u16)>>,
+    /// Items offered by a player vendor.
+    #[hidden_element]
+    vending_items: Vec<VendingItem<ResourceMetadata>>,
+    /// Account id of the vendor whose shop is currently open.
+    #[hidden_element]
+    vending_account_id: AccountId,
+    /// Unique id of the vending shop currently open.
+    #[hidden_element]
+    vending_unique_id: u32,
     /// The name of the active character. This information is not available
     /// while playing if we don't save it here.
     player_name: String,
@@ -506,6 +530,9 @@ impl ClientState {
             let buy_cart = Vec::default();
             let sell_items = Vec::default();
             let sell_cart = Vec::default();
+            let vending_items = Vec::default();
+            let vending_account_id = AccountId(0);
+            let vending_unique_id = 0u32;
             let player_name = String::new();
             let hotbar = Hotbar::default();
             let inventory = Inventory::default();
@@ -572,6 +599,8 @@ impl ClientState {
             quest_entries: Vec::new(),
             active_status_effects: Vec::new(),
             storage_items: Vec::new(),
+            cart_info: CartInfo::default(),
+            has_new_mail: false,
             entities: Vec::new(),
             dead_entities: Vec::new(),
             ground_items: Vec::new(),
@@ -581,6 +610,9 @@ impl ClientState {
             buy_cart,
             sell_items,
             sell_cart,
+            vending_items,
+            vending_account_id,
+            vending_unique_id,
             player_name,
             hotbar,
             inventory,

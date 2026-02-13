@@ -10,7 +10,7 @@ use crate::event::{NetworkEventList, NoNetworkEvents};
 use crate::items::ItemQuantity;
 use crate::{
     CharacterServerLoginData, HotkeyState, InventoryItem, InventoryItemDetails, LoginServerLoginData, MessageColor, NetworkEvent,
-    NoMetadata, ShopItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
+    NoMetadata, ShopItem, VendingItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
 };
 
 pub fn register_login_server_packets<Callback>(
@@ -1246,6 +1246,30 @@ where
     })?;
     packet_handler.register(|_: TradeCancelledPacket| NetworkEvent::TradeCancelled)?;
     packet_handler.register(|packet: TradeCompletedPacket| NetworkEvent::TradeCompleted {
+        result: packet.result,
+    })?;
+    packet_handler.register(|packet: VendingItemListPacket| {
+        let items = packet
+            .items
+            .into_iter()
+            .map(|item| VendingItem {
+                metadata: NoMetadata,
+                item_id: item.item_id,
+                item_type: item.item_type,
+                price: item.price,
+                amount: item.amount,
+                index: item.index,
+                refine: item.refine,
+            })
+            .collect();
+
+        NetworkEvent::VendingList {
+            account_id: packet.account_id,
+            unique_id: packet.unique_id,
+            items,
+        }
+    })?;
+    packet_handler.register(|packet: VendingPurchaseResultPacket| NetworkEvent::VendingPurchaseResult {
         result: packet.result,
     })?;
 

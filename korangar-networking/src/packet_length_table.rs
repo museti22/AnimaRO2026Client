@@ -109,6 +109,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x012E, 2),
         (0x012F, -1),
         (0x0130, 6),
+        (0x0135, 3),   // ZC_PC_PURCHASE_RESULT_FROMMC
         (0x0138, 3),
         (0x013A, 4),   // ZC_ATTACK_RANGE
         (0x013B, 4),   // ZC_ACTION_FAILURE
@@ -599,6 +600,8 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x07F8, -1),
         (0x07F9, -1),
         (0x07FC, 10),
+        (0x0800, -1),  // ZC_PC_PURCHASE_ITEMLIST_FROMMC2
+        (0x0801, -1),  // CZ_PC_PURCHASE_ITEMLIST_FROMMC2
         (0x0802, 26),
         (0x0803, 4),
         (0x0804, 14),

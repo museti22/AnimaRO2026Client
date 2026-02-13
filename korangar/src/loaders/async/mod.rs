@@ -6,7 +6,7 @@ use hashbrown::HashMap;
 use korangar_debug::logging::print_debug;
 #[cfg(feature = "debug")]
 use korangar_debug::profiling::Profiler;
-use korangar_networking::{InventoryItem, NoMetadata, ShopItem};
+use korangar_networking::{InventoryItem, NoMetadata, ShopItem, VendingItem};
 use ragnarok_packets::{EntityId, ItemId, TilePosition};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
@@ -197,6 +197,26 @@ impl AsyncLoader {
         let metadata = ResourceMetadata { texture, name };
 
         ShopItem { metadata, ..item }
+    }
+
+    pub fn request_vending_item_metadata_load(&self, item: VendingItem<NoMetadata>) -> VendingItem<ResourceMetadata> {
+        let resource_name = self.library.get::<ItemResource>(ItemResourceKey {
+            item_id: item.item_id,
+            is_identified: true,
+        });
+        let full_path = format!("유저인터페이스\\item\\{resource_name}.bmp");
+        let texture = self.request_item_sprite_load(ItemLocation::Shop, item.item_id, &full_path, ImageType::Color);
+        let name = self
+            .library
+            .get::<ItemName>(ItemNameKey {
+                item_id: item.item_id,
+                is_identified: true,
+            })
+            .to_string();
+
+        let metadata = ResourceMetadata { texture, name };
+
+        VendingItem { metadata, ..item }
     }
 
     pub fn request_map_load(&self, map_name: String, position: Option<TilePosition>) {

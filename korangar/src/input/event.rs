@@ -6,7 +6,7 @@ use korangar_interface::event::{ClickHandler, Event, EventQueue};
 use korangar_networking::{InventoryItem, ShopItem};
 use ragnarok_packets::{
     AccountId, BuyOrSellOption, CharacterId, CharacterServerInformation, EntityId, HotbarSlot, InventoryIndex, PartyId, ShopId, SkillId,
-    SoldItemInformation, StatUpType, TilePosition,
+    SoldItemInformation, StatUpType, TilePosition, VendingPurchaseItemInformation,
 };
 use rust_state::Context;
 
@@ -264,6 +264,17 @@ pub enum InputEvent {
         /// Items to sell.
         items: Vec<SoldItemInformation>,
     },
+    /// Purchase items from a player vending shop.
+    PurchaseFromVending {
+        /// Account id of the vendor.
+        account_id: AccountId,
+        /// Unique vending shop id.
+        unique_id: u32,
+        /// Items to purchase.
+        items: Vec<VendingPurchaseItemInformation>,
+    },
+    /// Close the vending shop window.
+    CloseVending,
     /// Up a stat.
     StatUp { stat_type: StatUpType },
     /// Accept a party invite.
@@ -291,6 +302,13 @@ pub enum InputEvent {
     RespondToTrade {
         /// Whether to accept or reject.
         accept: bool,
+    },
+    /// Add an item to the current trade.
+    TradeAddItem {
+        /// Index of the item in inventory.
+        inventory_index: InventoryIndex,
+        /// Amount to add to the trade.
+        amount: u32,
     },
     /// Cancel the current trade.
     TradeCancel,

@@ -4,11 +4,38 @@ use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::{Element, ElementBox};
 use korangar_interface::layout::{Resolver, WindowLayout};
 use korangar_interface::window::{CustomWindow, Window};
-use rust_state::{Context, ManuallyAssertExt, Path, VecIndexExt};
+use rust_state::{Context, ManuallyAssertExt, Path, Selector, VecIndexExt};
 
 use crate::interface::windows::WindowClass;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, QuestEntry, QuestEntryPathExt};
+
+struct StatusSelector<A> {
+    active_path: A,
+    text: std::cell::UnsafeCell<String>,
+}
+
+impl<A> StatusSelector<A> {
+    fn new(active_path: A) -> Self {
+        Self {
+            active_path,
+            text: std::cell::UnsafeCell::default(),
+        }
+    }
+}
+
+impl<A> Selector<ClientState, String> for StatusSelector<A>
+where
+    A: Path<ClientState, bool>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let active = self.active_path.follow(state).unwrap();
+        unsafe {
+            *self.text.get() = if *active { "Active".to_string() } else { "Inactive".to_string() };
+            Some(self.text.as_ref_unchecked())
+        }
+    }
+}
 
 struct QuestList<A> {
     quests_path: A,
@@ -49,9 +76,13 @@ where
                 for index in self.elements.len()..quests.len() {
                     let quest_path = self.quests_path.index(index).manually_asserted();
                     let name_path = quest_path.name();
+                    let status_selector = StatusSelector::new(quest_path.active());
 
-                    self.elements.push(ErasedElement::new(text! {
+                    self.elements.push(ErasedElement::new(collapsable! {
                         text: name_path,
+                        children: (
+                            text! { text: status_selector },
+                        ),
                     }));
                 }
             }
@@ -101,6 +132,7 @@ where
             class: Self::window_class(),
             theme: InterfaceThemeType::InGame,
             closable: true,
+            minimum_width: 250.0,
             elements: [
                 scroll_view! {
                     children: (

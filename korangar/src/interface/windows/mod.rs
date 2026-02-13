@@ -108,7 +108,6 @@ pub use self::party::PartyWindow;
 pub use self::party_invite::PartyInviteWindow;
 pub use self::trade::TradeWindow;
 pub use self::trade_request::TradeRequestWindow;
-#[allow(unused_imports)]
 pub use self::vending::VendingWindow;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]

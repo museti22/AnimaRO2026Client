@@ -32,7 +32,7 @@ use tokio::task::JoinHandle;
 pub use self::entity::EntityData;
 pub use self::event::{DisconnectReason, NetworkEvent};
 pub use self::hotkey::HotkeyState;
-pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem};
+pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem, VendingItem};
 pub use self::message::MessageColor;
 pub use self::packet_versions::SupportedPacketVersion;
 pub use self::server::{
@@ -835,6 +835,22 @@ where
         }
     }
 
+    pub fn send_party_message(&mut self, player_name: &str, text: &str) -> Result<(), NotConnectedError> {
+        let message = format!("{} : {}", player_name, text);
+
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 => self.send_map_server_packet(PartyChatSendPacket::new(message)),
+        }
+    }
+
+    pub fn send_guild_message(&mut self, player_name: &str, text: &str) -> Result<(), NotConnectedError> {
+        let message = format!("{} : {}", player_name, text);
+
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 => self.send_map_server_packet(GuildChatSendPacket::new(message)),
+        }
+    }
+
     pub fn start_dialog(&mut self, npc_id: EntityId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(StartDialogPacket::new(npc_id)),
@@ -1048,6 +1064,15 @@ where
         }
     }
 
+    pub fn trade_add_item(&mut self, inventory_index: InventoryIndex, amount: u32) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 => self.send_map_server_packet(TradeAddItemPacket {
+                index: inventory_index,
+                amount,
+            }),
+        }
+    }
+
     pub fn trade_commit(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(TradeCommitPacket {}),
@@ -1114,6 +1139,21 @@ where
     pub fn skill_up(&mut self, skill_id: SkillId) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(SkillUpPacket { skill_id }),
+        }
+    }
+
+    pub fn purchase_from_vending(
+        &mut self,
+        account_id: AccountId,
+        unique_id: u32,
+        items: Vec<VendingPurchaseItemInformation>,
+    ) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 => self.send_map_server_packet(VendingPurchasePacket {
+                account_id,
+                unique_id,
+                items,
+            }),
         }
     }
 }

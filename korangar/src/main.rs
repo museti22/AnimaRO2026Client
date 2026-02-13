@@ -72,7 +72,7 @@ use networking::{PacketHistory, PacketHistoryCallback};
 use ragnarok_packets::handler::NoPacketCallback;
 use ragnarok_packets::{
     AccountId, AttackRange, BuyShopItemsResult, CharacterServerInformation, Direction, DisappearanceReason, HotbarSlot, SellItemsResult,
-    SkillId, TilePosition, UnitId, WorldPosition,
+    SkillId, TilePosition, UnitId, VendingPurchaseResult, WorldPosition,
 };
 use renderer::InterfaceRenderer;
 use rust_state::{Context, ManuallyAssertExt};
@@ -1936,6 +1936,49 @@ impl Client {
                             .push(ChatMessage::new("Failed to sell items".to_owned(), MessageColor::Error));
                     }
                 },
+                NetworkEvent::VendingList {
+                    account_id,
+                    unique_id,
+                    items,
+                } => {
+                    *self.client_state.follow_mut(client_state().vending_account_id()) = account_id;
+                    *self.client_state.follow_mut(client_state().vending_unique_id()) = unique_id;
+                    *self.client_state.follow_mut(client_state().vending_items()) = items
+                        .into_iter()
+                        .map(|item| self.async_loader.request_vending_item_metadata_load(item))
+                        .collect();
+
+                    self.interface.open_window(VendingWindow::new(
+                        client_state().vending_items(),
+                        client_state().vending_account_id(),
+                        client_state().vending_unique_id(),
+                    ));
+                }
+                NetworkEvent::VendingPurchaseResult { result } => match result {
+                    VendingPurchaseResult::Success => {
+                        self.client_state.follow_mut(client_state().vending_items()).clear();
+                        self.interface.close_window_with_class(WindowClass::Vending);
+
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new("Purchase successful!".to_owned(), MessageColor::Server));
+                    }
+                    _ => {
+                        let message = match result {
+                            VendingPurchaseResult::NotEnoughZeny => "Not enough Zeny.",
+                            VendingPurchaseResult::Overweight => "You are overweight.",
+                            VendingPurchaseResult::StockExceeded => "Not enough stock.",
+                            VendingPurchaseResult::DealCanceled => "Deal was canceled.",
+                            VendingPurchaseResult::InsufficientAmount => "Insufficient amount available.",
+                            VendingPurchaseResult::OpenEquipWindow => "Cannot buy that item.",
+                            VendingPurchaseResult::Success => unreachable!(),
+                        };
+
+                        self.client_state
+                            .follow_mut(client_state().chat_messages())
+                            .push(ChatMessage::new(message.to_owned(), MessageColor::Error));
+                    }
+                },
                 NetworkEvent::AttackFailed {
                     target_entity_id,
                     target_position,
@@ -2300,6 +2343,12 @@ impl Client {
                         .push(ChatMessage::new(msg.to_string(), MessageColor::Information));
                 }
                 NetworkEvent::CartInfo { current_count, maximum_count, current_weight, maximum_weight } => {
+                    let cart = self.client_state.follow_mut(client_state().cart_info());
+                    cart.current_count = current_count;
+                    cart.maximum_count = maximum_count;
+                    cart.current_weight = current_weight;
+                    cart.maximum_weight = maximum_weight;
+
                     let msg = format!(
                         "Cart: {}/{} items, {}/{} weight",
                         current_count, maximum_count, current_weight, maximum_weight,
@@ -2367,8 +2416,16 @@ impl Client {
                             ));
                     }
                 }
-                NetworkEvent::CartItemRemoved { .. } => {
-                    // Cart item removed - cart system tracking
+                NetworkEvent::CartItemRemoved { index, amount } => {
+                    let cart = self.client_state.follow_mut(client_state().cart_info());
+                    cart.current_count = (cart.current_count - 1).max(0);
+
+                    self.client_state
+                        .follow_mut(client_state().chat_messages())
+                        .push(ChatMessage::new(
+                            format!("Removed {} item(s) from cart (slot {})", amount, index),
+                            MessageColor::Information,
+                        ));
                 }
                 NetworkEvent::StatUpResult { stat_type, success, value } => {
                     if !success {
@@ -2409,7 +2466,9 @@ impl Client {
                         .into_iter()
                         .map(|(quest_id, active)| {
                             crate::state::QuestEntry {
-                                name: format!("Quest #{}{}", quest_id, if active { "" } else { " (inactive)" }),
+                                quest_id,
+                                name: format!("Quest #{}", quest_id),
+                                active,
                             }
                         })
                         .collect();
@@ -2419,7 +2478,9 @@ impl Client {
                     self.client_state
                         .follow_mut(client_state().quest_entries())
                         .push(crate::state::QuestEntry {
-                            name: format!("Quest #{}{}", quest_id, if active { "" } else { " (inactive)" }),
+                            quest_id,
+                            name: format!("Quest #{}", quest_id),
+                            active,
                         });
                     self.client_state
                         .follow_mut(client_state().chat_messages())
@@ -2430,8 +2491,7 @@ impl Client {
                 }
                 NetworkEvent::QuestRemoved { quest_id } => {
                     let entries = self.client_state.follow_mut(client_state().quest_entries());
-                    let id_str = format!("Quest #{}", quest_id);
-                    entries.retain(|e| !e.name.starts_with(&id_str));
+                    entries.retain(|e| e.quest_id != quest_id);
                     self.client_state
                         .follow_mut(client_state().chat_messages())
                         .push(ChatMessage::new(
@@ -2440,6 +2500,8 @@ impl Client {
                         ));
                 }
                 NetworkEvent::NewMailStatus { has_new_mail } => {
+                    *self.client_state.follow_mut(client_state().has_new_mail()) = has_new_mail;
+
                     if has_new_mail {
                         self.client_state
                             .follow_mut(client_state().chat_messages())
@@ -2725,7 +2787,7 @@ impl Client {
                     if self.client_state.try_follow(this_entity()).is_some() {
                         match self.interface.is_window_with_class_open(WindowClass::Mail) {
                             true => self.interface.close_window_with_class(WindowClass::Mail),
-                            false => self.interface.open_window(MailWindow),
+                            false => self.interface.open_window(MailWindow::new(client_state().has_new_mail())),
                         }
                     }
                 }
@@ -2911,6 +2973,20 @@ impl Client {
                         continue;
                     }
 
+                    // Handle party chat: /p message
+                    if let Some(party_text) = text.strip_prefix("/p ") {
+                        let player_name = self.client_state.follow(client_state().player_name());
+                        let _ = self.networking_system.send_party_message(player_name, party_text);
+                        continue;
+                    }
+
+                    // Handle guild chat: /g message
+                    if let Some(guild_text) = text.strip_prefix("/g ") {
+                        let player_name = self.client_state.follow(client_state().player_name());
+                        let _ = self.networking_system.send_guild_message(player_name, guild_text);
+                        continue;
+                    }
+
                     let _ = self
                         .networking_system
                         .send_chat_message(self.client_state.follow(client_state().player_name()), &text);
@@ -3036,6 +3112,13 @@ impl Client {
                     self.interface.close_window_with_class(WindowClass::Sell);
                     self.interface.close_window_with_class(WindowClass::SellCart);
                 }
+                InputEvent::PurchaseFromVending { account_id, unique_id, items } => {
+                    let _ = self.networking_system.purchase_from_vending(account_id, unique_id, items);
+                }
+                InputEvent::CloseVending => {
+                    self.client_state.follow_mut(client_state().vending_items()).clear();
+                    self.interface.close_window_with_class(WindowClass::Vending);
+                }
                 InputEvent::BuyOrSell { shop_id, buy_or_sell } => {
                     let _ = self.networking_system.select_buy_or_sell(shop_id, buy_or_sell);
                     self.interface.close_window_with_class(WindowClass::BuyOrSell);
@@ -3059,6 +3142,9 @@ impl Client {
                 InputEvent::RespondToTrade { accept } => {
                     let _ = self.networking_system.trade_respond(accept);
                     self.interface.close_window_with_class(WindowClass::TradeRequest);
+                }
+                InputEvent::TradeAddItem { inventory_index, amount } => {
+                    let _ = self.networking_system.trade_add_item(inventory_index, amount);
                 }
                 InputEvent::TradeCancel => {
                     let _ = self.networking_system.trade_cancel();
@@ -3272,6 +3358,12 @@ impl Client {
                     ItemLocation::Shop => {
                         self.client_state
                             .follow_mut(client_state().shop_items())
+                            .iter_mut()
+                            .filter(|item| item.item_id == item_id)
+                            .for_each(|item| item.metadata.texture = Some(texture.clone()));
+
+                        self.client_state
+                            .follow_mut(client_state().vending_items())
                             .iter_mut()
                             .filter(|item| item.item_id == item_id)
                             .for_each(|item| item.metadata.texture = Some(texture.clone()));

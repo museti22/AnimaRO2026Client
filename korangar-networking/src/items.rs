@@ -85,3 +85,16 @@ pub struct SellItem<Meta> {
     pub price: Price,
     pub overcharge_price: Price,
 }
+
+/// An item listed in a player vending shop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VendingItem<Meta> {
+    pub metadata: Meta,
+    pub item_id: ItemId,
+    pub item_type: u8,
+    pub price: Price,
+    pub amount: u16,
+    /// Vending slot index, required when purchasing.
+    pub index: u16,
+    pub refine: u8,
+}

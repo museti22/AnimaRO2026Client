@@ -3,7 +3,7 @@ use std::time::Instant;
 use ragnarok_packets::*;
 
 use crate::hotkey::HotkeyState;
-use crate::items::ShopItem;
+use crate::items::{ShopItem, VendingItem};
 use crate::{
     CharacterServerLoginData, EntityData, InventoryItem, LoginServerLoginData, MessageColor, NoMetadata,
     UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
@@ -507,6 +507,16 @@ pub enum NetworkEvent {
     /// Storage items received (inventory_type == 2 in item list packets).
     StorageItemList {
         items: Vec<InventoryItem<NoMetadata>>,
+    },
+    /// Player vending shop item list received when clicking on a vendor.
+    VendingList {
+        account_id: AccountId,
+        unique_id: u32,
+        items: Vec<VendingItem<NoMetadata>>,
+    },
+    /// Result of a vending purchase attempt.
+    VendingPurchaseResult {
+        result: VendingPurchaseResult,
     },
 }
 
