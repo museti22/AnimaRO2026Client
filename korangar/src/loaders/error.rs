@@ -6,4 +6,5 @@ pub enum LoadError {
     File(FileNotFoundError),
     Conversion(Box<ConversionError>),
     UnsupportedFormat(String),
+    Gpu(String),
 }

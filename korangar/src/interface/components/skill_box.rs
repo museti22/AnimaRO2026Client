@@ -171,15 +171,36 @@ where
         }
 
         if let Some(skill) = state.try_get(&self.skill_path) {
+            // Estimate current tick from animation state.
+            let current_tick = skill.animation_state.start_time.0.wrapping_add(skill.animation_state.time);
+            let on_cooldown = skill.cooldown_until.0 > current_tick;
+
+            let sprite_color = if on_cooldown {
+                Color::rgba_u8(128, 128, 128, 180)
+            } else {
+                Color::WHITE
+            };
+
             layout.add_sprite(
                 layout_info.area,
                 &skill.actions,
                 &skill.sprite,
                 &skill.animation_state,
-                Color::WHITE,
+                sprite_color,
             );
 
-            if is_hovered {
+            // Cooldown overlay: dark semi-transparent rectangle over the skill icon.
+            if on_cooldown {
+                layout.add_rectangle(
+                    layout_info.area,
+                    CornerDiameter::uniform(20.0),
+                    Color::rgba_u8(0, 0, 0, 140),
+                    Color::TRANSPARENT,
+                    ShadowPadding::uniform(0.0),
+                );
+            }
+
+            if is_hovered && !on_cooldown {
                 layout.register_click_handler(MouseButton::Left, &self.handler);
             }
 

@@ -52,12 +52,30 @@ pub struct GameFileLoader {
 impl FileLoader for GameFileLoader {
     fn get(&self, path: &str) -> Result<Vec<u8>, FileNotFoundError> {
         let lowercase_path = path.to_lowercase();
-        self.archives
-            .read()
-            .unwrap()
+
+        #[cfg(feature = "debug")]
+        let is_rsw = lowercase_path.ends_with(".rsw");
+
+        let archives = self.archives.read().unwrap();
+
+        #[cfg(feature = "debug")]
+        if is_rsw {
+            print_debug!("[FileLoader::get] searching '{}' across {} archives", lowercase_path, archives.len());
+        }
+
+        let result = archives
             .iter()
-            .find_map(|archive| archive.archive.get_file_by_path(&lowercase_path))
-            .ok_or_else(|| FileNotFoundError::new(path.to_owned()))
+            .enumerate()
+            .find_map(|(_i, archive)| {
+                let r = archive.archive.get_file_by_path(&lowercase_path);
+                #[cfg(feature = "debug")]
+                if is_rsw {
+                    print_debug!("[FileLoader::get]   archive[{}] -> {}", _i, if r.is_some() { "FOUND" } else { "none" });
+                }
+                r
+            });
+
+        result.ok_or_else(|| FileNotFoundError::new(path.to_owned()))
     }
 }
 

@@ -17,6 +17,41 @@ pub struct QuestObjectiveData {
     pub total_count: u32,
 }
 
+/// Guild member data received from the server.
+#[derive(Debug, Clone)]
+pub struct GuildMemberData {
+    pub name: String,
+    pub position: String,
+    pub level: u16,
+    pub job: i16,
+    pub online: bool,
+}
+
+/// Party member data from ZC_GROUP_LIST.
+#[derive(Debug, Clone)]
+pub struct PartyMemberData {
+    pub account_id: AccountId,
+    pub name: String,
+    pub map_name: String,
+    pub leader: bool,
+    pub online: bool,
+    pub class: i16,
+    pub base_level: i16,
+}
+
+/// Mail entry data received from the server.
+#[derive(Debug, Clone)]
+pub struct MailEntryData {
+    pub mail_id: u64,
+    pub sender_name: String,
+    pub title: String,
+    pub body: String,
+    pub timestamp: u32,
+    pub read: bool,
+    pub zeny: u32,
+    pub has_item: bool,
+}
+
 /// An event triggered by one of the Ragnarok Online servers.
 #[derive(Debug)]
 pub enum NetworkEvent {
@@ -71,12 +106,32 @@ pub enum NetworkEvent {
     },
     /// Initial player status.
     InitialStats {
+        stat_points: u16,
+        strength: u8,
         strength_stat_points_cost: u8,
+        agility: u8,
         agility_stat_points_cost: u8,
+        vitality: u8,
         vitality_stat_points_cost: u8,
+        intelligence: u8,
         intelligence_stat_points_cost: u8,
+        dexterity: u8,
         dexterity_stat_points_cost: u8,
+        luck: u8,
         luck_stat_points_cost: u8,
+        attack1: u16,
+        attack2: u16,
+        magic_attack1: u16,
+        magic_attack2: u16,
+        defense1: u16,
+        defense2: u16,
+        magic_defense1: u16,
+        magic_defense2: u16,
+        hit: u16,
+        flee1: u16,
+        flee2: u16,
+        critical: u16,
+        attack_speed: u16,
     },
     /// Resurrect a player.
     ResurrectPlayer {
@@ -252,6 +307,9 @@ pub enum NetworkEvent {
     },
     OpenShop {
         items: Vec<ShopItem<NoMetadata>>,
+        /// True when the shop was opened via classic NPC shop (0x00C6),
+        /// false for market-style shops (0x0B77, 0x0B7A).
+        is_npc_shop: bool,
     },
     AskBuyOrSell {
         shop_id: ShopId,
@@ -305,6 +363,11 @@ pub enum NetworkEvent {
         account_id: AccountId,
         x: i16,
         y: i16,
+    },
+    /// Full party member list received (ZC_GROUP_LIST).
+    PartyMemberList {
+        party_name: String,
+        members: Vec<PartyMemberData>,
     },
     /// Party member left or was kicked.
     PartyMemberDeleted {
@@ -504,6 +567,27 @@ pub enum NetworkEvent {
     NewMailStatus {
         has_new_mail: bool,
     },
+    /// Guild info received.
+    GuildInfo {
+        guild_id: u32,
+        guild_name: String,
+        guild_level: u16,
+        member_count: u16,
+        max_member_count: u16,
+        master_name: String,
+    },
+    /// Guild member list received.
+    GuildMemberList {
+        members: Vec<GuildMemberData>,
+    },
+    /// Mail list received (RODEX inbox).
+    MailList {
+        mails: Vec<MailEntryData>,
+    },
+    /// Mail deleted.
+    MailDeleted {
+        mail_id: u64,
+    },
     /// Server forced position change (knockback).
     ServerMove {
         position: TilePosition,
@@ -532,6 +616,41 @@ pub enum NetworkEvent {
     /// Result of a vending purchase attempt.
     VendingPurchaseResult {
         result: VendingPurchaseResult,
+    },
+    /// Pet egg selection list received from server.
+    PetEggList {
+        eggs: Vec<u16>,
+    },
+    /// Pet capture result.
+    PetCatchResult {
+        success: bool,
+    },
+    /// Cutin image display (NPC illustrations).
+    ShowCutin {
+        image_name: String,
+        location: u8,
+    },
+    /// Homunculus properties updated.
+    HomunculusInfo {
+        name: String,
+        level: u16,
+        hunger: u16,
+        intimacy: u16,
+        hp: i32,
+        max_hp: i32,
+        sp: i16,
+        max_sp: i16,
+        exp: i32,
+        max_exp: i32,
+        skill_points: u16,
+        atk: u16,
+        matk: u16,
+        hit: u16,
+        critical: u16,
+        def: u16,
+        mdef: u16,
+        flee: u16,
+        aspd: u16,
     },
 }
 

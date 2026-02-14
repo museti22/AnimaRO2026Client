@@ -55,7 +55,7 @@ impl AnimationActionType {
                 AnimationActionType::Skill => 12,
                 _ => 0,
             },
-            EntityType::Npc | EntityType::Monster => match self {
+            EntityType::Npc | EntityType::Monster | EntityType::Homunculus | EntityType::Mercenary | EntityType::Elemental => match self {
                 AnimationActionType::Idle => 0,
                 AnimationActionType::Walk => 1,
                 AnimationActionType::Attack1 => 2,

@@ -66,10 +66,12 @@ impl Archive for NativeArchive {
         let mut file_table_byte_reader = ByteReader::without_metadata(&decompressed);
         let mut assets = HashMap::with_capacity(file_count);
 
+        #[cfg(feature = "debug")]
+        print_debug!("[GRF] file_count={}, reserved={}, raw_count={}", file_count, file_header.reserved_files, file_header.file_count);
+
         for _index in 0..file_count {
             let file_information = FileTableRow::from_bytes(&mut file_table_byte_reader).unwrap();
             let file_name = file_information.file_name.to_lowercase();
-
             assets.insert(file_name, file_information);
         }
 
@@ -89,7 +91,22 @@ impl Archive for NativeArchive {
     }
 
     fn get_file_by_path(&self, asset_path: &str) -> Option<Vec<u8>> {
-        self.file_table.get(asset_path).map(|file_information| {
+        let file_information = self.file_table.get(asset_path).or_else(|| {
+            // If the path contains non-ASCII characters (e.g. Korean), the GRF
+            // file table may store the filename as mojibake: the raw EUC-KR
+            // bytes were decoded as Latin-1 during GRF parsing. Re-encode the
+            // Unicode path to EUC-KR bytes and reinterpret as Latin-1 to obtain
+            // the mojibake key that matches the file table.
+            if asset_path.bytes().any(|b| b > 0x7F) {
+                let (encoded, _, _) = encoding_rs::EUC_KR.encode(asset_path);
+                let mojibake: String = encoded.iter().map(|&b| b as char).collect();
+                self.file_table.get(&mojibake.to_lowercase())
+            } else {
+                None
+            }
+        });
+
+        file_information.map(|file_information| {
             let mut compressed_file_buffer = vec![0u8; file_information.compressed_size_aligned as usize];
 
             let position = file_information.offset as u64 + Header::size_in_bytes() as u64;
@@ -98,7 +115,7 @@ impl Archive for NativeArchive {
                 // Since the calling threads are sharing the IO bandwidth anyhow, I don't think
                 // we need to allow this to run in parallel.
                 let mut file_handle = self.file_handle.lock().unwrap();
-                file_handle.seek(SeekFrom::Start(position)).unwrap();
+                file_handle.seek(SeekFrom::Start(position)).expect("can't seek in archive");
                 file_handle
                     .read_exact(&mut compressed_file_buffer)
                     .expect("can't read archive content");
@@ -108,7 +125,9 @@ impl Archive for NativeArchive {
 
             let mut decoder = ZlibDecoder::new(compressed_file_buffer.as_slice());
             let mut decompressed = Vec::with_capacity(file_information.uncompressed_size as usize);
-            decoder.read_to_end(&mut decompressed).expect("can't decompress archive content");
+            decoder
+                .read_to_end(&mut decompressed)
+                .expect("can't decompress archive content");
 
             decompressed
         })
@@ -118,7 +137,7 @@ impl Archive for NativeArchive {
         let found_files = self
             .file_table
             .iter()
-            .filter(|(file_name, row)| row.flags == 0x01 && extensions.iter().any(|extension| file_name.ends_with(extension)))
+            .filter(|(file_name, row)| row.flags & 0x01 != 0 && extensions.iter().any(|extension| file_name.ends_with(extension)))
             .map(|(file_name, _)| file_name.clone());
 
         files.extend(found_files);

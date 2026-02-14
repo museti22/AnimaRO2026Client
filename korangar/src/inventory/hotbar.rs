@@ -1,7 +1,7 @@
 use korangar_interface::element::StateElement;
 use korangar_networking::NetworkingSystem;
 use ragnarok_packets::handler::PacketCallback;
-use ragnarok_packets::{HotbarSlot, HotbarTab, HotkeyData};
+use ragnarok_packets::{ClientTick, HotbarSlot, HotbarTab, HotkeyData, SkillId};
 use rust_state::RustState;
 
 use super::Skill;
@@ -87,5 +87,15 @@ impl Hotbar {
 
     pub fn get_skill_in_slot(&self, slot: HotbarSlot) -> &Option<Skill> {
         &self.skills[slot.0 as usize]
+    }
+
+    pub fn set_skill_cooldown(&mut self, skill_id: SkillId, until: ClientTick) {
+        for slot in &mut self.skills {
+            if let Some(skill) = slot {
+                if skill.skill_id == skill_id {
+                    skill.cooldown_until = until;
+                }
+            }
+        }
     }
 }

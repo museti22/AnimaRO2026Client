@@ -9,8 +9,9 @@ use ragnarok_packets::*;
 use crate::event::{NetworkEventList, NoNetworkEvents};
 use crate::items::ItemQuantity;
 use crate::{
-    CharacterServerLoginData, HotkeyState, InventoryItem, InventoryItemDetails, LoginServerLoginData, MessageColor, NetworkEvent,
-    NoMetadata, QuestObjectiveData, ShopItem, VendingItem, UnifiedCharacterSelectionFailedReason, UnifiedLoginFailedReason,
+    CharacterServerLoginData, GuildMemberData, HotkeyState, InventoryItem, InventoryItemDetails, LoginServerLoginData, MessageColor,
+    NetworkEvent, NoMetadata, PartyMemberData, QuestObjectiveData, ShopItem, VendingItem, UnifiedCharacterSelectionFailedReason,
+    UnifiedLoginFailedReason,
 };
 
 pub fn register_login_server_packets<Callback>(
@@ -519,23 +520,33 @@ where
             .collect(),
     })?;
     packet_handler.register(|packet: InitialStatsPacket| {
-        let InitialStatsPacket {
-            strength_stat_points_cost,
-            agility_stat_points_cost,
-            vitality_stat_points_cost,
-            intelligence_stat_points_cost,
-            dexterity_stat_points_cost,
-            luck_stat_points_cost,
-            ..
-        } = packet;
-
         NetworkEvent::InitialStats {
-            strength_stat_points_cost,
-            agility_stat_points_cost,
-            vitality_stat_points_cost,
-            intelligence_stat_points_cost,
-            dexterity_stat_points_cost,
-            luck_stat_points_cost,
+            stat_points: packet.stat_points,
+            strength: packet.strength,
+            strength_stat_points_cost: packet.strength_stat_points_cost,
+            agility: packet.agility,
+            agility_stat_points_cost: packet.agility_stat_points_cost,
+            vitality: packet.vitatity,
+            vitality_stat_points_cost: packet.vitality_stat_points_cost,
+            intelligence: packet.intelligence,
+            intelligence_stat_points_cost: packet.intelligence_stat_points_cost,
+            dexterity: packet.dexterity,
+            dexterity_stat_points_cost: packet.dexterity_stat_points_cost,
+            luck: packet.luck,
+            luck_stat_points_cost: packet.luck_stat_points_cost,
+            attack1: packet.left_attack,
+            attack2: packet.rigth_attack,
+            magic_attack1: packet.left_magic_attack,
+            magic_attack2: packet.rigth_magic_attack,
+            defense1: packet.left_defense,
+            defense2: packet.rigth_defense,
+            magic_defense1: packet.rigth_magic_defense,
+            magic_defense2: packet.left_magic_defense,
+            hit: packet.hit,
+            flee1: packet.flee,
+            flee2: packet.flee2,
+            critical: packet.crit,
+            attack_speed: packet.attack_speed,
         }
     })?;
     packet_handler.register_noop::<UpdatePartyInvitationStatePacket>()?;
@@ -690,13 +701,17 @@ where
         amount: packet.amount,
         is_base_experience: matches!(packet.experience_type, ExperienceType::BaseExperience),
     })?;
-    packet_handler.register(|packet: DisplayImagePacket| NetworkEvent::ChatMessage {
-        text: format!(
-            "[Image] {} (location: {:?})",
-            packet.image_name.trim_end_matches('\0'),
-            packet.location
-        ),
-        color: MessageColor::Server,
+    packet_handler.register(|packet: DisplayImagePacket| {
+        let image_name = packet.image_name.trim_end_matches('\0').to_string();
+        let location = match packet.location {
+            ImageLocation::BottomLeft => 0,
+            ImageLocation::BottomMiddle => 1,
+            ImageLocation::BottomRight => 2,
+            ImageLocation::MiddleFloating => 3,
+            ImageLocation::MiddleColorless => 4,
+            ImageLocation::ClearAll => 255,
+        };
+        NetworkEvent::ShowCutin { image_name, location }
     })?;
     // StateChangePacket (0x0196) provides body/health/effect state as bitmasks.
     // We emit a chat message for PKmode changes and handle body/health states later.
@@ -844,19 +859,28 @@ where
         }
     })?;
     packet_handler.register(|packet: DamagePacket1| match packet.damage_type {
-        DamageType::Damage => Some(NetworkEvent::DamageEffect {
+        DamageType::Damage | DamageType::DamageEndure | DamageType::Splash
+        | DamageType::Skill | DamageType::RepeatDamage | DamageType::MultiHitDamage
+        | DamageType::MultiHitDamageEndure | DamageType::TouchSkill => Some(NetworkEvent::DamageEffect {
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
             attack_duration: packet.attack_duration,
             is_critical: false,
         }),
-        DamageType::CriticalHit => Some(NetworkEvent::DamageEffect {
+        DamageType::CriticalHit | DamageType::CriticalMultiHit => Some(NetworkEvent::DamageEffect {
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
             attack_duration: packet.attack_duration,
             is_critical: true,
+        }),
+        DamageType::LuckyDodge => Some(NetworkEvent::DamageEffect {
+            source_entity_id: packet.source_entity_id,
+            destination_entity_id: packet.destination_entity_id,
+            damage_amount: None,
+            attack_duration: packet.attack_duration,
+            is_critical: false,
         }),
         DamageType::PickUpItem => Some(NetworkEvent::EntityPickUpItem {
             entity_id: packet.source_entity_id,
@@ -868,22 +892,30 @@ where
         DamageType::StandUp => Some(NetworkEvent::PlayerStandUp {
             entity_id: packet.destination_entity_id,
         }),
-        _ => None,
     })?;
     packet_handler.register(|packet: DamagePacket3| match packet.damage_type {
-        DamageType::Damage => Some(NetworkEvent::DamageEffect {
+        DamageType::Damage | DamageType::DamageEndure | DamageType::Splash
+        | DamageType::Skill | DamageType::RepeatDamage | DamageType::MultiHitDamage
+        | DamageType::MultiHitDamageEndure | DamageType::TouchSkill => Some(NetworkEvent::DamageEffect {
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
             attack_duration: packet.attack_duration as u32,
             is_critical: false,
         }),
-        DamageType::CriticalHit => Some(NetworkEvent::DamageEffect {
+        DamageType::CriticalHit | DamageType::CriticalMultiHit => Some(NetworkEvent::DamageEffect {
             source_entity_id: packet.source_entity_id,
             destination_entity_id: packet.destination_entity_id,
             damage_amount: (packet.damage_amount > 0).then_some(packet.damage_amount as usize),
             attack_duration: packet.attack_duration as u32,
             is_critical: true,
+        }),
+        DamageType::LuckyDodge => Some(NetworkEvent::DamageEffect {
+            source_entity_id: packet.source_entity_id,
+            destination_entity_id: packet.destination_entity_id,
+            damage_amount: None,
+            attack_duration: packet.attack_duration as u32,
+            is_critical: false,
         }),
         DamageType::PickUpItem => Some(NetworkEvent::EntityPickUpItem {
             entity_id: packet.source_entity_id,
@@ -895,7 +927,6 @@ where
         DamageType::StandUp => Some(NetworkEvent::PlayerStandUp {
             entity_id: packet.destination_entity_id,
         }),
-        _ => None,
     })?;
     packet_handler.register(|packet: NpcDialogPacket| {
         let NpcDialogPacket { npc_id, text } = packet;
@@ -918,6 +949,7 @@ where
     })?;
     packet_handler.register_noop::<Packet8302>()?;
     packet_handler.register_noop::<Packet0b18>()?;
+    packet_handler.register_noop::<ServerPingPacket>()?;
     packet_handler.register(|packet: MapServerLoginSuccessPacket| NetworkEvent::UpdateClientTick {
         client_tick: packet.client_tick,
         received_at: Instant::now(),
@@ -1052,7 +1084,7 @@ where
             })
             .collect();
 
-        NetworkEvent::OpenShop { items }
+        NetworkEvent::OpenShop { items, is_npc_shop: false }
     })?;
     packet_handler.register(|packet: BuyOrSellPacket| NetworkEvent::AskBuyOrSell { shop_id: packet.shop_id })?;
     packet_handler.register(|packet: ShopItemListPacket| {
@@ -1070,7 +1102,24 @@ where
             })
             .collect();
 
-        NetworkEvent::OpenShop { items }
+        NetworkEvent::OpenShop { items, is_npc_shop: false }
+    })?;
+    packet_handler.register(|packet: NpcShopBuyListPacket| {
+        let items = packet
+            .items
+            .into_iter()
+            .map(|item| ShopItem {
+                metadata: NoMetadata,
+                item_id: item.item_id,
+                item_type: item.item_type,
+                price: item.price,
+                quantity: ItemQuantity::Infinite,
+                weight: 0,
+                location: 0,
+            })
+            .collect();
+
+        NetworkEvent::OpenShop { items, is_npc_shop: true }
     })?;
     packet_handler.register(|packet: BuyShopItemsResultPacket| NetworkEvent::BuyingCompleted { result: packet.result })?;
     packet_handler.register(|packet: ParameterChangePacket| NetworkEvent::ParameterChange {
@@ -1080,12 +1129,10 @@ where
     packet_handler.register(|packet: SellListPacket| NetworkEvent::SellItemList { items: packet.items })?;
     packet_handler.register(|packet: SellItemsResultPacket| NetworkEvent::SellingCompleted { result: packet.result })?;
     packet_handler.register(|packet: RequestStatUpResponsePacket| {
-        match packet.success {
-            RequestStatUpResult::Failure => Some(NetworkEvent::ChatMessage {
-                text: "Cannot increase that stat any further.".to_string(),
-                color: MessageColor::Error,
-            }),
-            RequestStatUpResult::Success => None,
+        NetworkEvent::StatUpResult {
+            stat_type: packet.staus_type,
+            success: matches!(packet.success, RequestStatUpResult::Success),
+            value: packet.value,
         }
     })?;
     packet_handler.register(|packet: EquipAmmunitionPacket| NetworkEvent::ChatMessage {
@@ -1179,6 +1226,22 @@ where
         job: packet.job,
         level: packet.level,
     })?;
+    packet_handler.register(|packet: PartyGroupListPacket| NetworkEvent::PartyMemberList {
+        party_name: packet.party_name.trim_matches('\0').to_string(),
+        members: packet
+            .members
+            .into_iter()
+            .map(|m| PartyMemberData {
+                account_id: m.account_id,
+                name: m.name.trim_matches('\0').to_string(),
+                map_name: m.map_name.trim_matches('\0').to_string(),
+                leader: m.leader != 0,
+                online: m.offline == 0,
+                class: m.class,
+                base_level: m.base_level,
+            })
+            .collect(),
+    })?;
     packet_handler.register(|packet: CartItemCountInfoPacket| NetworkEvent::CartInfo {
         current_count: packet.current_count,
         maximum_count: packet.maximum_count,
@@ -1243,6 +1306,12 @@ where
     packet_handler.register(|packet: PetActPacket| NetworkEvent::PetAction {
         entity_id: packet.gid,
         data: packet.data,
+    })?;
+    packet_handler.register(|packet: PetEggListPacket| NetworkEvent::PetEggList {
+        eggs: packet.eggs.iter().map(|e| e.index).collect(),
+    })?;
+    packet_handler.register(|packet: PetCatchResultPacket| NetworkEvent::PetCatchResult {
+        success: packet.result != 0,
     })?;
     packet_handler.register(|packet: WhisperReceivePacket| {
         let sender = packet.sender_name.trim_matches('\0').to_string();
@@ -1329,6 +1398,76 @@ where
     })?;
     packet_handler.register(|packet: VendingPurchaseResultPacket| NetworkEvent::VendingPurchaseResult {
         result: packet.result,
+    })?;
+    packet_handler.register(|packet: PropertyHomunculusPacket| NetworkEvent::HomunculusInfo {
+        name: packet.name.trim_matches('\0').to_string(),
+        level: packet.level,
+        hunger: packet.hunger,
+        intimacy: packet.intimacy,
+        hp: packet.hp,
+        max_hp: packet.max_hp,
+        sp: packet.sp,
+        max_sp: packet.max_sp,
+        exp: packet.exp,
+        max_exp: packet.max_exp,
+        skill_points: packet.skill_points,
+        atk: packet.atk,
+        matk: packet.matk,
+        hit: packet.hit,
+        critical: packet.critical,
+        def: packet.def,
+        mdef: packet.mdef,
+        flee: packet.flee,
+        aspd: packet.aspd,
+    })?;
+    packet_handler.register(|packet: FeedMerPacket| {
+        let text = if packet.result == 1 {
+            "Your homunculus refuses the food."
+        } else {
+            "Your homunculus happily ate the food."
+        };
+        NetworkEvent::ChatMessage {
+            text: text.to_string(),
+            color: MessageColor::Information,
+        }
+    })?;
+
+    // Guild packets
+    packet_handler.register(|packet: GuildInfoPacket| NetworkEvent::GuildInfo {
+        guild_id: packet.guild_id,
+        guild_name: packet.guild_name.trim_matches('\0').to_string(),
+        guild_level: packet.level as u16,
+        member_count: packet.connected_count as u16,
+        max_member_count: packet.max_member as u16,
+        master_name: packet.master_name.trim_matches('\0').to_string(),
+    })?;
+    packet_handler.register(|packet: GuildMemberListPacket| {
+        let position_names = [
+            "Guild Master", "Member", "Officer", "Sub-Officer", "Recruit",
+            "Position 6", "Position 7", "Position 8", "Position 9", "Position 10",
+            "Position 11", "Position 12", "Position 13", "Position 14", "Position 15",
+            "Position 16", "Position 17", "Position 18", "Position 19", "Position 20",
+        ];
+        let members = packet
+            .members
+            .into_iter()
+            .map(|m| {
+                let pos_idx = m.position as usize;
+                let position = if pos_idx < position_names.len() {
+                    position_names[pos_idx].to_string()
+                } else {
+                    format!("Position {}", pos_idx)
+                };
+                GuildMemberData {
+                    name: m.name.trim_matches('\0').to_string(),
+                    position,
+                    level: m.level,
+                    job: m.job as i16,
+                    online: m.online != 0,
+                }
+            })
+            .collect();
+        NetworkEvent::GuildMemberList { members }
     })?;
 
     Ok(())

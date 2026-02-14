@@ -30,7 +30,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 pub use self::entity::EntityData;
-pub use self::event::{DisconnectReason, NetworkEvent, QuestObjectiveData};
+pub use self::event::{DisconnectReason, GuildMemberData, MailEntryData, NetworkEvent, PartyMemberData, QuestObjectiveData};
 pub use self::hotkey::HotkeyState;
 pub use self::items::{InventoryItem, InventoryItemDetails, ItemQuantity, NoMetadata, SellItem, ShopItem, VendingItem};
 pub use self::message::MessageColor;
@@ -571,9 +571,9 @@ where
             login_server_login_data.account_id,
             character_server_login_data.character_id,
             login_server_login_data.login_id1,
-            // Always passing 100 seems to work fine for now, but it might cause
-            // issues when connecting to something other than rAthena.
+            // client_tick at offset 14-17, matching server's expected layout
             ClientTick(100),
+            login_server_login_data.login_id2,
             login_server_login_data.sex,
         );
 
@@ -1018,6 +1018,21 @@ where
         }
     }
 
+    /// Purchase items from a classic NPC shop (responds to 0x00C6 with 0x00C8).
+    pub fn purchase_npc_items(&mut self, items: Vec<ShopItem<u32>>) -> Result<(), NotConnectedError> {
+        let item_information = items
+            .into_iter()
+            .map(|item| BuyItemInformation {
+                amount: item.metadata as u16,
+                item_id: item.item_id,
+            })
+            .collect();
+
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 => self.send_map_server_packet(BuyItemsPacket { items: item_information }),
+        }
+    }
+
     pub fn close_shop(&mut self) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(CloseShopPacket::new()),
@@ -1104,6 +1119,18 @@ where
     pub fn select_pet_egg(&mut self, index: u16) -> Result<(), NotConnectedError> {
         match self.map_server_packet_version()? {
             SupportedPacketVersion::_20220406 => self.send_map_server_packet(SelectPetEggPacket { index }),
+        }
+    }
+
+    pub fn try_capture_monster(&mut self, target_id: EntityId) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 => self.send_map_server_packet(TryCaptureMonsterPacket { target_id }),
+        }
+    }
+
+    pub fn rename_pet(&mut self, name: String) -> Result<(), NotConnectedError> {
+        match self.map_server_packet_version()? {
+            SupportedPacketVersion::_20220406 => self.send_map_server_packet(RenamePetPacket { name }),
         }
     }
 

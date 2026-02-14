@@ -144,6 +144,34 @@ impl Default for PartyMember {
 #[derive(Debug, Clone, RustState, StateElement)]
 pub struct GuildMember {
     pub name: String,
+    pub position: String,
+    pub level: u16,
+    pub job: i16,
+    pub online: bool,
+}
+
+/// Information about the player's guild.
+#[derive(Debug, Clone, Default, RustState, StateElement)]
+pub struct GuildInfo {
+    pub guild_id: u32,
+    pub guild_name: String,
+    pub guild_level: u16,
+    pub member_count: u16,
+    pub max_member_count: u16,
+    pub master_name: String,
+}
+
+/// A mail entry in the RODEX mailbox.
+#[derive(Debug, Clone, RustState, StateElement)]
+pub struct MailEntry {
+    pub mail_id: u64,
+    pub sender_name: String,
+    pub title: String,
+    pub body: String,
+    pub timestamp: u32,
+    pub read: bool,
+    pub zeny: u32,
+    pub has_item: bool,
 }
 
 /// A single hunt objective within a quest.
@@ -331,6 +359,8 @@ pub struct ClientState {
     party_members: Vec<PartyMember>,
     /// Guild member list.
     guild_members: Vec<GuildMember>,
+    /// Guild info (name, level, etc.).
+    guild_info: GuildInfo,
     /// Quest log entries.
     quest_entries: Vec<QuestEntry>,
     /// Active status effects (buffs/debuffs) on the player.
@@ -342,6 +372,8 @@ pub struct ClientState {
     cart_info: CartInfo,
     /// Whether the player has new unread mail.
     has_new_mail: bool,
+    /// Mail entries (RODEX inbox).
+    mail_entries: Vec<MailEntry>,
 
     /// All entities on the map.
     entities: Vec<Entity>,
@@ -358,6 +390,9 @@ pub struct ClientState {
     // TODO: Unhide this
     #[hidden_element]
     shop_items: Vec<ShopItem<ResourceMetadata>>,
+    /// Whether the currently open shop is a classic NPC shop (0x00C6) vs market (0x0B77/0x0B7A).
+    #[hidden_element]
+    npc_shop_active: bool,
     /// List of items in the buying cart.
     // TODO: Unhide this
     #[hidden_element]
@@ -545,6 +580,7 @@ impl ClientState {
             let dialog_window = DialogWindowState::default();
 
             let shop_items = Vec::default();
+            let npc_shop_active = false;
             let buy_cart = Vec::default();
             let sell_items = Vec::default();
             let sell_cart = Vec::default();
@@ -615,17 +651,20 @@ impl ClientState {
             trade_state: TradeState::default(),
             party_members: Vec::new(),
             guild_members: Vec::new(),
+            guild_info: GuildInfo::default(),
             quest_entries: Vec::new(),
             active_status_effects: Vec::new(),
             storage_items: Vec::new(),
             cart_info: CartInfo::default(),
             has_new_mail: false,
+            mail_entries: Vec::new(),
             entities: Vec::new(),
             dead_entities: Vec::new(),
             ground_items: Vec::new(),
             chat_messages,
             friend_list,
             shop_items,
+            npc_shop_active,
             buy_cart,
             sell_items,
             sell_cart,

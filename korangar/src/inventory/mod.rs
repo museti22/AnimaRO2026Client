@@ -54,11 +54,11 @@ impl Inventory {
     }
 
     pub fn remove_item(&mut self, index: InventoryIndex, remove_amount: u16) {
-        let position = self
-            .items
-            .iter()
-            .position(|item| item.index == index)
-            .expect("item not in inventory");
+        let Some(position) = self.items.iter().position(|item| item.index == index) else {
+            #[cfg(feature = "debug")]
+            korangar_debug::logging::print_debug!("[INV] remove_item: index {:?} not in inventory, ignoring", index);
+            return;
+        };
 
         if let InventoryItemDetails::Regular { amount, .. } = &mut self.items[position].details
             && *amount > remove_amount
@@ -71,7 +71,11 @@ impl Inventory {
     }
 
     pub fn update_equipped_position(&mut self, index: InventoryIndex, new_equipped_position: EquipPosition) {
-        let item = self.items.iter_mut().find(|item| item.index == index).unwrap();
+        let Some(item) = self.items.iter_mut().find(|item| item.index == index) else {
+            #[cfg(feature = "debug")]
+            korangar_debug::logging::print_debug!("[INV] update_equipped_position: index {:?} not in inventory, ignoring", index);
+            return;
+        };
 
         let InventoryItemDetails::Equippable { equipped_position, .. } = &mut item.details else {
             // This can happen for ammunition for example.

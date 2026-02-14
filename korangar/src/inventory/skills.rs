@@ -20,6 +20,8 @@ pub struct Skill {
     #[hidden_element]
     pub actions: Arc<Actions>,
     pub animation_state: SpriteAnimationState,
+    /// Tick at which the cooldown expires. 0 means no cooldown.
+    pub cooldown_until: ClientTick,
 }
 
 #[derive(Default, RustState, StateElement)]
@@ -193,6 +195,7 @@ impl SkillTree {
                     sprite,
                     actions,
                     animation_state: SpriteAnimationState::new(client_tick),
+                    cooldown_until: ClientTick(0),
                 })
             })
             .collect();
@@ -200,5 +203,13 @@ impl SkillTree {
 
     pub fn find_skill(&self, skill_id: SkillId) -> Option<Skill> {
         self.skills.iter().find(|skill| skill.skill_id == skill_id).cloned()
+    }
+
+    pub fn set_cooldown(&mut self, skill_id: SkillId, until: ClientTick) {
+        for skill in &mut self.skills {
+            if skill.skill_id == skill_id {
+                skill.cooldown_until = until;
+            }
+        }
     }
 }

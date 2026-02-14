@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use korangar_interface::element::store::{ElementStore, ElementStoreMut};
 use korangar_interface::element::Element;
 use korangar_interface::layout::area::Area;
@@ -5,9 +7,10 @@ use korangar_interface::layout::{Resolver, WindowLayout};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 
-use crate::graphics::Color;
+use crate::graphics::{Color, Texture};
 use crate::interface::windows::WindowClass;
 use crate::loaders::{FontSize, OverflowBehavior};
+use crate::renderer::LayoutExt;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, ClientStatePathExt};
 use crate::state::client_state;
@@ -22,11 +25,12 @@ struct MinimapLayoutInfo {
 struct MinimapElement {
     map_width: u16,
     map_height: u16,
+    texture: Option<Arc<Texture>>,
 }
 
 impl MinimapElement {
-    fn new(map_width: u16, map_height: u16) -> Self {
-        Self { map_width, map_height }
+    fn new(map_width: u16, map_height: u16, texture: Option<Arc<Texture>>) -> Self {
+        Self { map_width, map_height, texture }
     }
 }
 
@@ -60,20 +64,23 @@ impl Element<ClientState> for MinimapElement {
             return;
         }
 
-        // Draw a dark background for the minimap area
         let bg_area = layout_info.area;
-        layout.add_text(
-            bg_area,
-            "",
-            FontSize(1.0),
-            Color::rgba(0.0, 0.0, 0.0, 0.5),
-            Color::rgba(0.0, 0.0, 0.0, 0.5),
-            HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
-            VerticalAlignment::Center { offset: 0.0 },
-            OverflowBehavior::Shrink,
-        );
 
-        // Render entity dots as small text markers
+        // Render the minimap texture as background if available,
+        // otherwise fall back to a dark semi-transparent rectangle.
+        if let Some(texture) = &self.texture {
+            layout.add_texture(bg_area, texture.clone(), Color::WHITE, true);
+        } else {
+            layout.add_rectangle(
+                bg_area,
+                Default::default(),
+                Color::rgba(0.0, 0.0, 0.0, 0.5),
+                Color::rgba(0.0, 0.0, 0.0, 0.0),
+                Default::default(),
+            );
+        }
+
+        // Render entity dots as small text markers on top of the minimap
         for entity in entities.iter() {
             let entity_type = entity.get_entity_type();
 
@@ -123,6 +130,39 @@ impl Element<ClientState> for MinimapElement {
                 OverflowBehavior::Shrink,
             );
         }
+
+        // Render party member positions as cyan dots
+        let party_path = client_state().party_members();
+        let party_members = state.get(&party_path);
+        for member in party_members.iter() {
+            if member.x == 0 && member.y == 0 {
+                continue;
+            }
+
+            let x_ratio = member.x as f32 / map_w;
+            let y_ratio = 1.0 - (member.y as f32 / map_h);
+
+            let dot_x = bg_area.left + x_ratio * bg_area.width;
+            let dot_y = bg_area.top + y_ratio * bg_area.height;
+
+            let dot_area = Area {
+                left: dot_x - 3.0,
+                top: dot_y - 3.0,
+                width: 8.0,
+                height: 8.0,
+            };
+
+            layout.add_text(
+                dot_area,
+                "\u{25CF}",
+                FontSize(8.0),
+                Color::rgb_u8(0, 255, 255), // Cyan = party member
+                Color::rgb_u8(0, 255, 255),
+                HorizontalAlignment::Left { offset: 0.0, border: 0.0 },
+                VerticalAlignment::Center { offset: 0.0 },
+                OverflowBehavior::Shrink,
+            );
+        }
     }
 }
 
@@ -132,14 +172,16 @@ pub struct MinimapWindow {
     map_name: String,
     map_width: u16,
     map_height: u16,
+    texture: Option<Arc<Texture>>,
 }
 
 impl MinimapWindow {
-    pub fn new(map_name: String, map_width: u16, map_height: u16) -> Self {
+    pub fn new(map_name: String, map_width: u16, map_height: u16, texture: Option<Arc<Texture>>) -> Self {
         Self {
             map_name,
             map_width,
             map_height,
+            texture,
         }
     }
 }
@@ -159,9 +201,9 @@ impl CustomWindow<ClientState> for MinimapWindow {
             closable: true,
             minimum_width: 270.0,
             elements: (
-                MinimapElement::new(self.map_width, self.map_height),
+                MinimapElement::new(self.map_width, self.map_height, self.texture),
                 text! {
-                    text: "^ffff00You^000000 | ^00ff00Players^000000 | ^ff0000Monsters^000000 | ^0064ffNPCs^000000",
+                    text: "^ffff00You^000000 | ^00ff00Players^000000 | ^00ffffParty^000000 | ^ff0000Monsters^000000 | ^0064ffNPCs^000000",
                 },
             ),
         }

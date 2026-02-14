@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use korangar_interface::MouseMode;
 use korangar_networking::InventoryItem;
-use ragnarok_packets::TilePosition;
+use ragnarok_packets::{SkillId, SkillLevel, TilePosition};
 
 use crate::graphics::Texture;
 use crate::interface::resource::{ItemSource, SkillSource};
@@ -25,6 +25,14 @@ pub enum MouseInputMode {
         source: SkillSource,
         skill: Skill,
     },
+    SelectTargetForSkill {
+        skill_id: SkillId,
+        skill_level: SkillLevel,
+    },
+    SelectGroundForSkill {
+        skill_id: SkillId,
+        skill_level: SkillLevel,
+    },
 }
 
 impl From<MouseInputMode> for MouseMode<ClientState> {
@@ -44,6 +52,12 @@ pub trait MouseModeExt {
     fn walk_destination(&self) -> Option<TilePosition>;
 
     fn grabbed(&self) -> Option<Grabbed>;
+
+    fn is_selecting_skill_target(&self) -> bool;
+
+    fn skill_target_info(&self) -> Option<(SkillId, SkillLevel)>;
+
+    fn ground_skill_info(&self) -> Option<(SkillId, SkillLevel)>;
 }
 
 impl MouseModeExt for MouseMode<ClientState> {
@@ -74,6 +88,33 @@ impl MouseModeExt for MouseMode<ClientState> {
                 skill.actions.clone(),
                 skill.animation_state.clone(),
             )),
+            _ => None,
+        }
+    }
+
+    fn is_selecting_skill_target(&self) -> bool {
+        matches!(
+            self,
+            MouseMode::Custom {
+                mode: MouseInputMode::SelectTargetForSkill { .. } | MouseInputMode::SelectGroundForSkill { .. }
+            }
+        )
+    }
+
+    fn skill_target_info(&self) -> Option<(SkillId, SkillLevel)> {
+        match self {
+            MouseMode::Custom {
+                mode: MouseInputMode::SelectTargetForSkill { skill_id, skill_level },
+            } => Some((*skill_id, *skill_level)),
+            _ => None,
+        }
+    }
+
+    fn ground_skill_info(&self) -> Option<(SkillId, SkillLevel)> {
+        match self {
+            MouseMode::Custom {
+                mode: MouseInputMode::SelectGroundForSkill { skill_id, skill_level },
+            } => Some((*skill_id, *skill_level)),
             _ => None,
         }
     }

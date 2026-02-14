@@ -2,7 +2,6 @@ mod buffer;
 mod capabilities;
 mod color;
 mod engine;
-#[cfg(feature = "debug")]
 mod error;
 mod frame_pacer;
 mod instruction;
@@ -35,7 +34,6 @@ pub use self::buffer::Buffer;
 pub use self::capabilities::*;
 pub use self::color::*;
 pub use self::engine::{GraphicsEngine, GraphicsEngineDescriptor};
-#[cfg(feature = "debug")]
 pub use self::error::error_handler;
 pub use self::frame_pacer::*;
 pub use self::instruction::*;

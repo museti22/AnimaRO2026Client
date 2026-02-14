@@ -6,7 +6,9 @@ use korangar_interface::layout::{Resolver, WindowLayout};
 use korangar_interface::window::{CustomWindow, Window};
 use rust_state::{Context, ManuallyAssertExt, Path, Selector, VecIndexExt};
 
+use crate::graphics::Color;
 use crate::interface::windows::WindowClass;
+use crate::loaders::OverflowBehavior;
 use crate::state::theme::InterfaceThemeType;
 use crate::state::{ClientState, PartyMember, PartyMemberPathExt};
 
@@ -64,6 +66,42 @@ where
     }
 }
 
+struct HpBarSelector<H, M> {
+    hp_path: H,
+    max_hp_path: M,
+    text: std::cell::UnsafeCell<String>,
+}
+
+impl<H, M> HpBarSelector<H, M> {
+    fn new(hp_path: H, max_hp_path: M) -> Self {
+        Self {
+            hp_path,
+            max_hp_path,
+            text: std::cell::UnsafeCell::default(),
+        }
+    }
+}
+
+impl<H, M> Selector<ClientState, String> for HpBarSelector<H, M>
+where
+    H: Path<ClientState, i32>,
+    M: Path<ClientState, i32>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let hp = *self.hp_path.follow(state).unwrap();
+        let max_hp = *self.max_hp_path.follow(state).unwrap();
+        let percent = if max_hp > 0 {
+            (hp as f64 / max_hp as f64 * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+        unsafe {
+            *self.text.get() = format!("HP: {} / {} ({:.0}%)", hp, max_hp, percent);
+            Some(self.text.as_ref_unchecked())
+        }
+    }
+}
+
 struct MemberList<A> {
     members_path: A,
     elements: Vec<ElementBox<ClientState>>,
@@ -105,12 +143,18 @@ where
                     let name_path = member_path.name();
                     let level_selector = LevelSelector::new(member_path.level());
                     let job_selector = JobSelector::new(member_path.job());
+                    let hp_selector = HpBarSelector::new(member_path.health_points(), member_path.maximum_health_points());
 
                     self.elements.push(ErasedElement::new(collapsable! {
                         text: name_path,
                         children: (
-                            text! { text: level_selector },
-                            text! { text: job_selector },
+                            text! { text: level_selector, overflow_behavior: OverflowBehavior::Shrink },
+                            text! { text: job_selector, overflow_behavior: OverflowBehavior::Shrink },
+                            text! {
+                                text: hp_selector,
+                                color: Color::rgb_u8(67, 163, 83),
+                                overflow_behavior: OverflowBehavior::Shrink,
+                            },
                         ),
                     }));
                 }

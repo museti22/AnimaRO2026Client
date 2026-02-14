@@ -117,7 +117,7 @@ pub struct Service {
 
     /// Define each loading screen in the path `/data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/`
     #[serde(default, alias = "loading")]
-    pub loading_images: Option<Vec<LoadingImage>>,
+    pub loading_images: Option<LoadingImageList>,
 
     /// Packet version (`PACKET_VER`) used by the server.
     ///
@@ -161,12 +161,20 @@ pub struct GameMasterAccount {
     pub account_id: Option<i32>,
 }
 
+/// Wrapper for the `<loading>` element containing multiple `<image>` children.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default, Deserialize, RustState, StateElement)]
+pub struct LoadingImageList {
+    #[serde(default, rename = "image")]
+    pub images: Vec<LoadingImage>,
+}
+
 /// The ClientInfo Service's Loading Image structure.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Default, Deserialize, RustState, StateElement)]
 pub struct LoadingImage {
     /// File name.
-    #[serde(alias = "image")]
+    #[serde(rename = "$text")]
     pub filename: Option<String>,
 }
 

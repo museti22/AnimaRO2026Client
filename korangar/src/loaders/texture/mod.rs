@@ -462,7 +462,14 @@ impl TextureLoader {
                     Some(compressed_texture) => compressed_texture,
                     None => {
                         let (texture_data, transparent) = self.load_texture_data(&path, false)?;
-                        self.create_uncompressed_with_mipmaps(&path, transparent, texture_data)
+
+                        if texture_data.width() == 0 || texture_data.height() == 0 {
+                            eprintln!("Texture '{}' has zero dimensions ({}x{}), using fallback", path, texture_data.width(), texture_data.height());
+                            let (fallback_data, fallback_transparent) = self.load_texture_data(FALLBACK_PNG_FILE, false)?;
+                            self.create_uncompressed_with_mipmaps(&path, fallback_transparent, fallback_data)
+                        } else {
+                            self.create_uncompressed_with_mipmaps(&path, transparent, texture_data)
+                        }
                     }
                 }
             }
@@ -859,7 +866,15 @@ impl TextureSetBuilder {
                 self.videos.push(video);
             }
             false => {
-                texture = self.texture_loader.get_or_load(path, ImageType::Color).expect("can't load texture");
+                texture = match self.texture_loader.get_or_load(path, ImageType::Color) {
+                    Ok(t) => t,
+                    Err(err) => {
+                        eprintln!("Failed to load texture '{}': {:?}, using fallback", path, err);
+                        self.texture_loader
+                            .get_or_load(FALLBACK_PNG_FILE, ImageType::Color)
+                            .expect("can't load fallback texture")
+                    }
+                };
             }
         }
 

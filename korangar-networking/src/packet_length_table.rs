@@ -39,6 +39,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x008C, 14),
         (0x008D, -1),
         (0x008E, -1),
+        (0x0090, 7),   // CZ_CONTACTNPC (StartDialog)
         (0x0093, 2),
         (0x0094, 19),
         (0x0096, -1),
@@ -49,15 +50,28 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x00A7, 9),
         (0x00AB, 4),
         (0x00AE, -1),
+        (0x00B0, 8),
+        (0x00B1, 8),
         (0x00B2, 3),
+        (0x00B4, -1),  // ZC_SAY_DIALOG (variable)
+        (0x00B5, 6),   // ZC_WAIT_DIALOG
+        (0x00B6, 6),   // ZC_CLOSE_DIALOG
+        (0x00B7, -1),  // ZC_MENU_LIST (variable)
         (0x00B8, 7),
         (0x00B9, 6),
         (0x00BA, 2),
         (0x00BB, 5),
+        (0x00BC, 6),
+        (0x00BD, 44),
+        (0x00BE, 5),
         (0x00C1, 2),
         (0x00C3, 8),
-        (0x00C6, -1),
-        (0x00C8, -1),
+        (0x00C4, 6),   // ZC_PC_PURCHASE_MYITEMLIST (BuyOrSell)
+        (0x00C5, 7),   // CZ_PC_PURCHASE_ITEMLIST (SelectBuyOrSell)
+        (0x00C6, -1),  // ZC_PC_PURCHASE_ITEMLIST (NPC shop buy list)
+        (0x00C7, -1),  // ZC_PC_SELL_ITEMLIST (variable)
+        (0x00C8, -1),  // CZ_PC_PURCHASE_ITEMLIST (buy from NPC)
+        (0x00C9, -1),  // CZ_PC_SELL_ITEMLIST (sell items)
         (0x00CA, 3),
         (0x00CB, 3),
         (0x00CC, 6),
@@ -81,7 +95,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x00F2, 6),  // ZC_NOTIFY_STOREITEM_COUNTINFO
         (0x00F3, -1),
         (0x00F5, 11),
-        (0x00F7, 17),
+        (0x00F7, 2),   // CZ_CLOSE_STORE (CloseKafra)
         (0x00F8, 2),  // ZC_CLOSE_STORE
         (0x00FB, -1),
         (0x00FD, 27),
@@ -114,7 +128,11 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x013A, 4),   // ZC_ATTACK_RANGE
         (0x013B, 4),   // ZC_ACTION_FAILURE
         (0x013F, 26),
+        (0x0142, 6),   // ZC_OPEN_EDITDLG (numeric input)
+        (0x0143, 10),  // CZ_INPUT_EDITDLG (numeric input response)
+        (0x0141, 14),
         (0x0145, 19),
+        (0x0146, 6),   // CZ_CLOSE_DIALOG
         (0x0147, 39),
         (0x0149, 9),
         (0x014A, 6),
@@ -195,6 +213,8 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x01CC, 9),
         (0x01CF, 28),
         (0x01D0, 8),
+        (0x01D4, 6),   // ZC_OPEN_EDITDLGSTR (string input)
+        (0x01D5, -1),  // CZ_INPUT_EDITDLGSTR (string input response, variable)
         (0x01D7, 11),
         (0x01D8, 54),
         (0x01D9, 53),
@@ -227,7 +247,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x01FC, -1),
         (0x0200, 26),
         (0x0201, -1),
-        (0x0202, 5),
+        (0x0202, 26),  // CZ_ADD_FRIENDS (shuffled)
         (0x0203, 10),
         (0x0204, 18),
         (0x0206, 35),  // ZC_FRIENDS_STATE
@@ -254,14 +274,14 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x022A, 58),
         (0x022B, 57),
         (0x022C, 65),
-        (0x022D, 19),
+        (0x022D, 5),   // CZ_COMMAND_MER (HomMenu, shuffled)
         (0x022E, 71),
         (0x022F, 5),
         (0x0231, 26),
         (0x0233, 11),
         (0x0234, 6),
         (0x023A, 4),
-        (0x023B, 26),
+        (0x023B, 36),  // CZ_ACK_STORE_PASSWORD (shuffled)
         (0x023C, 6),
         (0x023D, -1),
         (0x023E, 8),
@@ -376,7 +396,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x02C0, -1),
         (0x02C1, -1),
         (0x02C2, -1),
-        (0x02C4, 6),
+        (0x02C4, 26),  // CZ_PARTY_JOIN_REQ (PartyInvite2, shuffled)
         (0x02C5, 30),
         (0x02CA, 3),
         (0x02CB, 65),
@@ -400,6 +420,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x02E5, 9),
         (0x02E6, 6),
         (0x02E7, -1),
+        (0x02EB, 13),
         (0x02EC, 67),
         (0x02ED, 59),
         (0x02EE, 60),
@@ -515,15 +536,15 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x035C, 2),
         (0x035D, -1),
         (0x035E, 2),
-        (0x035F, 6),
+        (0x035F, 5),   // CZ_REQUEST_MOVE (WalkToXY, shuffled)
         (0x0360, 6),
         (0x0361, 5),
         (0x0362, 6),
         (0x0363, 6),
-        (0x0364, 6),
-        (0x0365, 41),
-        (0x0366, 90),
-        (0x0367, 90),
+        (0x0364, 8),   // CZ_MOVE_ITEM_FROM_BODY_TO_STORE (MoveToKafra, shuffled)
+        (0x0365, 8),   // CZ_MOVE_ITEM_FROM_STORE_TO_BODY (MoveFromKafra, shuffled)
+        (0x0366, 10),  // CZ_USE_SKILL_TOGROUND (UseSkillToPos, shuffled)
+        (0x0367, 31),  // CZ_USE_SKILL_TOGROUND_WITHTALKBOX (shuffled)
         (0x0368, 6),
         (0x0369, 7),
         (0x0389, -1),
@@ -569,9 +590,9 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0433, -1),
         (0x0434, -1),
         (0x0435, -1),
-        (0x0436, 26),
-        (0x0437, 5),
-        (0x0438, 6),
+        (0x0436, 23),  // CZ_ENTER (WantToConnection, shuffled)
+        (0x0437, 7),   // CZ_REQUEST_ACT (ActionRequest, shuffled)
+        (0x0438, 10),  // CZ_USE_SKILL (UseSkillToId, shuffled)
         (0x0439, 8),
         (0x043E, -1),
         (0x043F, 25),
@@ -588,7 +609,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x07DA, 6),
         (0x07E2, 8),
         (0x07E3, 6),
-        (0x07E4, 6),
+        (0x07E4, -1),  // CZ_ITEMLISTWIN_RES (ItemListWindowSelected, shuffled, variable)
         (0x07E5, 8),
         (0x07E7, 32),
         (0x07E8, -1),
@@ -602,7 +623,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x07FC, 10),
         (0x0800, -1),  // ZC_PC_PURCHASE_ITEMLIST_FROMMC2
         (0x0801, -1),  // CZ_PC_PURCHASE_ITEMLIST_FROMMC2
-        (0x0802, 26),
+        (0x0802, 18),  // CZ_PARTY_BOOKING_REQ_REGISTER (shuffled)
         (0x0803, 4),
         (0x0804, 14),
         (0x0805, -1),
@@ -616,18 +637,18 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0810, 3),
         (0x0811, -1),
         (0x0812, 8),
-        (0x0815, -1),
-        (0x0817, 2),
+        (0x0815, 2),   // CZ_REQ_CLOSE_BUYING_STORE (shuffled)
+        (0x0817, 6),   // CZ_REQ_CLICK_TO_BUYING_STORE (shuffled)
         (0x0819, -1),
         (0x081A, 4),
         (0x081B, 10),
         (0x081C, 10),
         (0x081D, 22),
         (0x0820, 11),
-        (0x0835, 2),
-        (0x0838, 6),
+        (0x0835, -1),  // CZ_SEARCH_STORE_INFO (shuffled, variable)
+        (0x0838, 2),   // CZ_SEARCH_STORE_INFO_NEXT_PAGE (shuffled)
         (0x083B, 2),
-        (0x083C, 10),
+        (0x083C, -1),  // CZ_SSILIST_ITEM_CLICK (shuffled, variable)
         (0x0842, 6),
         (0x0843, 6),
         (0x0844, 2),
@@ -683,8 +704,10 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x08AD, 90),
         (0x08B3, -1),
         (0x08C7, 20),
+        (0x08C8, 34),  // ZC_NOTIFY_ACT
         (0x08C9, 2),
         (0x08D2, 10),
+        (0x08D6, 6),   // ZC_CLEAR_DIALOG
         (0x08D7, 28),
         (0x08D8, 27),
         (0x08D9, 30),
@@ -808,6 +831,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0A12, 27),
         (0x0A13, 26),
         (0x0A14, 10),
+        (0x0A18, -1),
         (0x0A19, 2),
         (0x0A1A, 23),
         (0x0A1B, 2),
@@ -846,6 +870,7 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0ABD, 10),  // ZC_PARTY_MEMBER_INFO (account_id+job+level)
         (0x0AC0, 26),
         (0x0AC1, 26),
+        (0x0ACB, 12),
         (0x0ACC, 18),
         (0x0ACE, 4),
         (0x0ADD, 22),
@@ -854,9 +879,84 @@ pub static PACKET_LENGTHS: LazyLock<HashMap<u16, i16>> = LazyLock::new(|| {
         (0x0AEF, 2),
         (0x0AF0, 10),
         (0x0AF4, 11),
+        (0x0B41, 70),  // ZC_ITEM_PICKUP_ACK
         (0x0B42, 62), // ZC_ADD_EXCHANGE_ITEM
         (0x0B4C, 2),
         (0x0B93, 12),
+        (0x0BA4, 73),  // ZC_PROPERTY_HOMUN
+        (0x0B1B, 2),   // ZC_PING (keepalive)
+
+        // === Missing ZC_ packets (server->client) for stream sync safety ===
+        // Movement and entity management
+        (0x0074, 3),   // ZC_REFUSE_ENTER
+        (0x007F, 6),   // ZC_NOTIFY_TIME (ServerTick)
+        (0x0080, 7),   // ZC_NOTIFY_VANISH (EntityDisappear)
+        (0x0081, 3),   // ZC_REFUSE_ENTER2 (LoginFailed)
+        (0x0086, 16),  // ZC_NOTIFY_MOVE (EntityMove)
+        (0x0087, 12),  // ZC_NOTIFY_PLAYERMOVE (PlayerMove)
+        (0x0088, 10),  // ZC_STOPMOVE (EntityStopMove)
+        (0x008A, 29),  // ZC_NOTIFY_ACT (Damage)
+        (0x0091, 22),  // ZC_NPCACK_MAPMOVE (ChangeMap)
+        (0x009C, 9),   // ZC_CHANGE_DIRECTION
+        (0x00A1, 6),   // ZC_ITEM_DISAPPEAR
+        (0x00AF, 6),   // ZC_ITEM_THROW_ACK
+        (0x00B3, 3),   // ZC_RESTART_ACK
+        (0x00C0, 7),   // ZC_EMOTION (DisplayEmotion)
+        // Skills and combat
+        (0x0110, 10),  // ZC_ACK_TOUSESKILL
+        (0x0120, 6),   // ZC_SKILL_DISAPPEAR
+        (0x0139, 16),  // ZC_ATTACK_FAILURE_FOR_DISTANCE
+        (0x0144, 23),  // ZC_COMPASS (MarkMinimap)
+        (0x0148, 8),   // ZC_RESURRECTION
+        (0x0192, 24),  // ZC_UPDATE_MAPINFO (ChangeMapCell)
+        (0x019B, 10),  // ZC_NOTIFY_EFFECT (VisualEffect)
+        (0x01A0, 3),   // ZC_TRYCAPTURE_MONSTER
+        (0x01B3, 67),  // ZC_SHOW_IMAGE2 (DisplayImage/Cutin)
+        (0x01B9, 6),   // ZC_DISPEL (CastCancel)
+        (0x0291, 4),   // ZC_MSG (MessageTable)
+        // Party and social
+        (0x02C6, 30),  // ZC_PARTY_JOIN_REQ_ACK2
+        (0x02C9, 3),   // ZC_PARTY_CONFIG
+        // Skill effects
+        (0x043D, 8),   // ZC_SKILL_POSTDELAY (DisplaySkillCooldown)
+        (0x07FA, 8),   // ZC_DELETE_ITEM_FROM_BODY
+        (0x07FB, 25),  // ZC_USESKILL_ACK (UseSkillSuccess)
+        // Character server packets
+        (0x082D, 29),  // HC_ACCEPT_ENTER2 (CharServerLoginSuccess)
+        (0x083E, 3),   // ZC_REFUSE_ENTER3 (LoginFailed2)
+        (0x08B9, 12),  // HC_EDIT_SECOND_PASSWD (LoginPincode)
+        (0x08E2, 27),  // ZC_NAVIGATION_ACTIVE (NavigateToMonster)
+        // Equipment and inventory
+        (0x0999, 11),  // ZC_ACK_WEAR_EQUIP_V5
+        (0x099A, 9),   // ZC_ACK_TAKEOFF_EQUIP_V5
+        (0x09A0, 6),   // HC_CHARLIST_NOTIFY (CharacterSlotPage)
+        // Skill display
+        (0x09CA, 23),  // ZC_SKILL_ENTRY5 (NotifySkillUnit)
+        (0x09CB, 17),  // ZC_RECOVERY2 (DisplaySkillEffectNoDamage)
+        (0x0A27, 7),   // ZC_RECOVERY3 (DisplayPlayerHealEffect)
+        (0x0A30, 106), // ZC_ACK_REQNAMEALL2 (PlayerDetails)
+        (0x0AC5, 156), // HC_ACCEPT_MAKECHAR_NEO_UNION_HEADER
+        (0x0AC7, 10),  // ZC_NPCACK_SERVERMOVE
+        (0x0ADF, 58),  // ZC_ACK_REQNAME_TITLE (EntityDetails)
+        (0x0AF7, 30),  // ZC_ACK_REQNAMEALL_NPC (EntityNameByGid)
+        (0x0B0B, 4),   // ZC_INVENTORY_END
+        (0x0B1A, 29),  // ZC_USESKILL_ACK3 (SkillCast)
+        (0x0B1D, 2),   // ZC_PING_LIVE (MapServerPing)
+        (0x0B70, 8),   // HC_ACK_CHANGE_CHARINDEX
+        (0x0988, 6),   // ZC_NOTIFY_CLAN_CONNECTINFO
+        // Variable-length server packets
+        (0x0840, -1),  // ZC_FAILED_OPEN_BUYING_STORE
+        (0x098A, -1),  // ZC_NOTIFY_CLAN_CHAT
+        (0x0AC4, -1),  // AC_ACCEPT_LOGIN2 (LoginServerLoginSuccess)
+        (0x0B08, -1),  // ZC_INVENTORY_START
+        (0x0B09, -1),  // ZC_INVENTORY_ITEMLIST_NORMAL_V7
+        (0x0B39, -1),  // ZC_INVENTORY_ITEMLIST_EQUIP_V7
+        (0x0B4E, -1),  // ZC_PC_PURCHASE_RESULT
+        (0x0B69, -1),  // ZC_NOTIFY_EFFECT3
+        (0x0B72, -1),  // HC_ACK_CHARINFO_PER_PAGE
+        (0x0B77, -1),  // ZC_PC_PURCHASE_ITEMLIST_V2
+        (0x0B7A, -1),  // ZC_NPC_MARKET_OPEN
+        (0x0B8D, -1),  // ZC_REPUTE_INFO
     ];
     entries.iter().copied().collect()
 });

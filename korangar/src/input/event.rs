@@ -311,6 +311,31 @@ pub enum InputEvent {
     FeedPet,
     /// Feed the active homunculus.
     FeedHomunculus,
+    /// Select a pet egg from the list to hatch.
+    SelectPetEgg {
+        index: u16,
+    },
+    /// Close the cutin image overlay.
+    CloseCutin,
+    /// Open a context menu for an entity.
+    OpenContextMenu {
+        /// Name of the entity.
+        entity_name: String,
+        /// Id of the entity.
+        entity_id: EntityId,
+        /// Type of the entity.
+        entity_type: crate::world::EntityType,
+    },
+    /// Request a trade with another player.
+    RequestTrade {
+        /// Entity id of the player to trade with.
+        entity_id: EntityId,
+    },
+    /// Invite a player to the party.
+    InviteToParty {
+        /// Name of the player to invite.
+        character_name: String,
+    },
     /// Respond to a trade request.
     RespondToTrade {
         /// Whether to accept or reject.

@@ -1,0 +1,15 @@
+(
+    lighting_mode: Enhanced,
+    vsync: true,
+    limit_framerate: Unlimited,
+    triple_buffering: true,
+    texture_filtering: Anisotropic(4),
+    msaa: X4,
+    ssaa: Off,
+    screen_space_anti_aliasing: Off,
+    shadow_method: SoftPCSS,
+    shadow_resolution: Normal,
+    shadow_detail: Medium,
+    sdsm: true,
+    high_quality_interface: true,
+)

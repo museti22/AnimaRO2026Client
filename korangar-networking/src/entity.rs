@@ -3,6 +3,7 @@ use ragnarok_packets::*;
 #[derive(Debug)]
 pub struct EntityData {
     pub entity_id: EntityId,
+    pub object_type: u8,
     pub movement_speed: u16,
     pub job: u16,
     pub head: u16,
@@ -18,6 +19,7 @@ impl EntityData {
     pub fn from_character(account_id: AccountId, character_information: &CharacterInformation, position: WorldPosition) -> Self {
         Self {
             entity_id: EntityId(account_id.0),
+            object_type: 0, // PC
             movement_speed: character_information.movement_speed as u16,
             job: character_information.job as u16,
             head: character_information.head as u16,
@@ -25,7 +27,7 @@ impl EntityData {
             destination: None,
             health_points: character_information.health_points as i32,
             maximum_health_points: character_information.maximum_health_points as i32,
-            head_direction: 0, // TODO: get correct rotation
+            head_direction: 0,
             sex: character_information.sex,
         }
     }
@@ -35,6 +37,7 @@ impl From<EntityAppearPacket> for EntityData {
     fn from(packet: EntityAppearPacket) -> Self {
         Self {
             entity_id: packet.entity_id,
+            object_type: packet.object_type,
             movement_speed: packet.movement_speed,
             job: packet.job,
             head: packet.head,
@@ -52,6 +55,7 @@ impl From<EntityAppear2Packet> for EntityData {
     fn from(packet: EntityAppear2Packet) -> Self {
         Self {
             entity_id: packet.entity_id,
+            object_type: packet.object_type,
             movement_speed: packet.movement_speed,
             job: packet.job,
             head: packet.head,
@@ -71,6 +75,7 @@ impl From<MovingEntityAppearPacket> for EntityData {
 
         Self {
             entity_id: packet.entity_id,
+            object_type: packet.object_type,
             movement_speed: packet.movement_speed,
             job: packet.job,
             head: packet.head,

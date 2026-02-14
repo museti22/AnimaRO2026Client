@@ -94,23 +94,23 @@ fn decrypt_data(data: &mut [u8], only_header_is_encrypted: bool, cycle: usize) {
 }
 
 fn decrypt_data_blocks(data: &mut [u8], only_header_is_encrypted: bool, cycle: usize) {
+    // The scramble counter tracks non-DES blocks independently of the
+    // absolute block number. Every 8th non-DES block gets scrambled.
+    let mut non_des_counter: i32 = -1;
+
     for (block_number, block_data) in data.chunks_exact_mut(BLOCK_SIZE).enumerate() {
-        if should_apply_des(block_number, only_header_is_encrypted, cycle) {
+        if block_number < HEADER_BLOCKS_SIZE || (!only_header_is_encrypted && block_number.is_multiple_of(cycle)) {
             let mut block = u64::from_be_bytes(block_data.try_into().unwrap());
             block = decode_des_block(block);
             block_data.copy_from_slice(&block.to_be_bytes());
-        } else if should_apply_scramble(block_number, only_header_is_encrypted) {
-            scramble_block(block_data);
+        } else if !only_header_is_encrypted {
+            non_des_counter += 1;
+            if non_des_counter == 7 {
+                scramble_block(block_data);
+                non_des_counter = 0;
+            }
         }
     }
-}
-
-fn should_apply_des(block_number: usize, only_header_is_encrypted: bool, cycle: usize) -> bool {
-    block_number < HEADER_BLOCKS_SIZE || (!only_header_is_encrypted && block_number.is_multiple_of(cycle))
-}
-
-fn should_apply_scramble(block_num: usize, only_header_is_encrypted: bool) -> bool {
-    !only_header_is_encrypted && block_num % 8 == 7
 }
 
 fn scramble_block(block: &mut [u8]) {

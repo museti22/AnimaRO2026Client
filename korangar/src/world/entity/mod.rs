@@ -37,7 +37,7 @@ use crate::world::{
 #[cfg(feature = "debug")]
 use crate::world::{MarkerIdentifier, SubMesh};
 #[cfg(feature = "debug")]
-use crate::{Buffer, Color, ModelVertex};
+use crate::{Buffer, ModelVertex};
 
 const MALE_HAIR_LOOKUP: &[usize] = &[2, 2, 1, 7, 5, 4, 3, 6, 8, 9, 10, 12, 11];
 const FEMALE_HAIR_LOOKUP: &[usize] = &[2, 2, 4, 7, 1, 5, 3, 6, 12, 10, 9, 11, 8];
@@ -135,18 +135,53 @@ pub enum EntityType {
     Npc,
     Player,
     Warp,
+    Homunculus,
+    Mercenary,
+    Elemental,
+}
+
+impl EntityType {
+    /// Determine entity type from the server's object_type field (u8).
+    /// rAthena object_type values:
+    ///   0 = PC, 1 = NPC, 5 = MOB, 4 = HOMUN, 6 = MERC, 7 = ELEM
+    pub fn from_object_type(object_type: u8, job_id: usize) -> Self {
+        match object_type {
+            0 => EntityType::Player,
+            1 => {
+                match job_id {
+                    45 => EntityType::Warp,
+                    111 => EntityType::Hidden,
+                    _ => EntityType::Npc,
+                }
+            }
+            4 => EntityType::Homunculus,
+            5 => EntityType::Monster,
+            6 => EntityType::Mercenary,
+            7 => EntityType::Elemental,
+            _ => Self::from_job_id(job_id),
+        }
+    }
+
+    /// Fallback: determine entity type from job_id alone (used when object_type
+    /// is not available, e.g. for the player's own character).
+    pub fn from_job_id(job_id: usize) -> Self {
+        match job_id {
+            45 => EntityType::Warp,
+            111 => EntityType::Hidden,
+            0..=44 | 4000..=5999 => EntityType::Player,
+            46..=999 | 10000..=19999 => EntityType::Npc,
+            6001..=6016 | 6048..=6052 => EntityType::Homunculus,
+            6017..=6046 => EntityType::Mercenary,
+            2114..=2117 => EntityType::Elemental,
+            1000..=3999 | 20000..=29999 => EntityType::Monster,
+            _ => EntityType::Npc,
+        }
+    }
 }
 
 impl From<usize> for EntityType {
     fn from(value: usize) -> Self {
-        match value {
-            45 => EntityType::Warp,
-            111 => EntityType::Hidden, // TODO: check that this is correct
-            0..=44 | 4000..=5999 => EntityType::Player,
-            46..=999 | 10000..=19999 => EntityType::Npc,
-            1000..=3999 | 20000..=29999 => EntityType::Monster,
-            _ => EntityType::Npc,
-        }
+        Self::from_job_id(value)
     }
 }
 
@@ -398,7 +433,10 @@ fn get_entity_part_files(library: &Library, entity_type: EntityType, job_id: usi
         ],
         EntityType::Npc => vec![format!("npc\\{}", library.get::<JobIdentity>(job_id).to_string())],
         EntityType::Monster => vec![format!("몬스터\\{}", library.get::<JobIdentity>(job_id).to_string())],
-        EntityType::Warp | EntityType::Hidden => vec![format!("npc\\{}", library.get::<JobIdentity>(job_id).to_string())], // TODO: change
+        EntityType::Homunculus | EntityType::Mercenary | EntityType::Elemental => {
+            vec![format!("몬스터\\{}", library.get::<JobIdentity>(job_id).to_string())]
+        }
+        EntityType::Warp | EntityType::Hidden => vec![format!("npc\\{}", library.get::<JobIdentity>(job_id).to_string())],
     }
 }
 
@@ -415,7 +453,7 @@ impl Common {
         let sex = entity_data.sex;
 
         let active_movement = None;
-        let entity_type = job_id.into();
+        let entity_type = EntityType::from_object_type(entity_data.object_type, job_id);
 
         let details = ResourceState::Unavailable;
         let animation_state = AnimationState::new(entity_type, client_tick);
@@ -744,6 +782,7 @@ impl Common {
             EntityType::Player => Color::rgb_u8(25, 250, 225),
             EntityType::Npc => Color::rgb_u8(170, 250, 25),
             EntityType::Monster => Color::rgb_u8(250, 100, 25),
+            EntityType::Homunculus | EntityType::Mercenary | EntityType::Elemental => Color::rgb_u8(100, 200, 250),
             _ => Color::WHITE,
         };
 
@@ -1136,18 +1175,22 @@ impl Player {
     /// Uses the same SP_* codes as the stat system.
     pub fn update_parameter(&mut self, variable_id: u16, value: u32) {
         match variable_id {
-            1 => self.common.movement_speed = value as usize,  // SP_SPEED
-            5 => self.common.health_points = value as usize,   // SP_HP
+            0 => self.common.movement_speed = value as usize,   // SP_SPEED
+            1 => self.base_experience = value as u64,            // SP_BASEEXP
+            2 => self.job_experience = value as u64,             // SP_JOBEXP
+            5 => self.common.health_points = value as usize,     // SP_HP
             6 => self.common.maximum_health_points = value as usize, // SP_MAXHP
-            7 => self.spell_points = value as usize,           // SP_SP
-            8 => self.maximum_spell_points = value as usize,   // SP_MAXSP
-            9 => self.stat_points = value,                     // SP_STATUSPOINT
-            11 => self.base_level = value as usize,            // SP_BASELEVEL
-            12 => self.skill_points = value,                   // SP_SKILLPOINT
-            20 => self.zeny = value,                           // SP_ZENY
-            24 => self.weight = value,                         // SP_WEIGHT
-            25 => self.maximum_weight = value,                 // SP_MAXWEIGHT
-            55 => self.job_level = value as usize,             // SP_JOBLEVEL
+            7 => self.spell_points = value as usize,             // SP_SP
+            8 => self.maximum_spell_points = value as usize,     // SP_MAXSP
+            9 => self.stat_points = value,                       // SP_STATUSPOINT
+            11 => self.base_level = value as usize,              // SP_BASELEVEL
+            12 => self.skill_points = value,                     // SP_SKILLPOINT
+            20 => self.zeny = value,                             // SP_ZENY
+            22 => self.next_base_experience = (value as u64).max(1), // SP_NEXTBASEEXP
+            23 => self.next_job_experience = (value as u64).max(1),  // SP_NEXTJOBEXP
+            24 => self.weight = value,                           // SP_WEIGHT
+            25 => self.maximum_weight = value,                   // SP_MAXWEIGHT
+            55 => self.job_level = value as usize,               // SP_JOBLEVEL
             _ => {}
         }
     }
@@ -1350,7 +1393,20 @@ impl Npc {
         // Render emotion for any NPC/monster.
         render_emotion(renderer, &self.common, final_position);
 
-        if self.common.entity_type != EntityType::Monster {
+        // Render nameplate for NPCs and Monsters.
+        if let Some(name) = self.common.details.as_option() {
+            let display_name = name.split('#').next().unwrap_or(name);
+            let name_color = match self.common.entity_type {
+                EntityType::Monster => Color::rgb_u8(255, 130, 130),
+                EntityType::Npc => Color::rgb_u8(200, 200, 255),
+                EntityType::Homunculus | EntityType::Mercenary | EntityType::Elemental => Color::rgb_u8(130, 255, 200),
+                _ => Color::WHITE,
+            };
+            let name_position = final_position + ScreenPosition::only_top(-16.0);
+            renderer.render_damage_text(display_name, name_position, name_color, FontSize(12.0));
+        }
+
+        if !matches!(self.common.entity_type, EntityType::Monster | EntityType::Homunculus | EntityType::Mercenary | EntityType::Elemental) {
             return;
         }
 

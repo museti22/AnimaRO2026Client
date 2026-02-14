@@ -68,12 +68,45 @@ impl Particle for DamageNumber {
             top: screen_position.y * window_size.height,
         };
 
-        let color = match self.is_critical {
-            true => Color::rgb_u8(255, 180, 0),
-            false => Color::WHITE,
+        let (color, size) = match self.is_critical {
+            true => (Color::rgb_u8(255, 220, 0), FontSize(22.0)),
+            false => (Color::WHITE, FontSize(16.0)),
         };
 
-        renderer.render_damage_text(&self.damage_amount, final_position, color, FontSize(16.0));
+        renderer.render_damage_text(&self.damage_amount, final_position, color, size);
+    }
+}
+
+/// A damage number that waits for a delay before appearing.
+/// Used for multi-hit skills to stagger damage display.
+pub struct DelayedDamageNumber {
+    inner: DamageNumber,
+    delay: f32,
+}
+
+impl DelayedDamageNumber {
+    pub fn new(position: Point3<f32>, damage_amount: String, is_critical: bool, delay: f32) -> Self {
+        Self {
+            inner: DamageNumber::new(position, damage_amount, is_critical),
+            delay,
+        }
+    }
+}
+
+impl Particle for DelayedDamageNumber {
+    fn update(&mut self, delta_time: f32) -> bool {
+        if self.delay > 0.0 {
+            self.delay -= delta_time;
+            return true;
+        }
+        self.inner.update(delta_time)
+    }
+
+    fn render(&self, renderer: &GameInterfaceRenderer, camera: &dyn Camera, window_size: ScreenSize) {
+        if self.delay > 0.0 {
+            return;
+        }
+        self.inner.render(renderer, camera, window_size);
     }
 }
 
@@ -105,7 +138,7 @@ impl Particle for Miss {
         };
         let alpha = (self.timer * 10.0).min(1.0);
 
-        renderer.render_damage_text("miss", final_position, Color::rgba(1.0, 0.0, 0.0, alpha), FontSize(20.0));
+        renderer.render_damage_text("miss", final_position, Color::rgba(0.6, 0.6, 0.6, alpha), FontSize(20.0));
     }
 }
 

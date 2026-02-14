@@ -7,7 +7,7 @@ use korangar_interface::layout::{Resolver, WindowLayout};
 use korangar_interface::prelude::{HorizontalAlignment, VerticalAlignment};
 use korangar_interface::window::{CustomWindow, Window};
 use korangar_networking::MessageColor;
-use rust_state::{Context, Path, RustState};
+use rust_state::{Context, Path, RustState, Selector};
 
 use super::WindowClass;
 use crate::graphics::Color;
@@ -23,25 +23,77 @@ const MAXIMUM_CHAT_MESSAGE_LENGTH: usize = 80;
 /// focus the chat when pressing enter.
 pub struct ChatTextBox;
 
-struct ChatLayoutInfo {
-    area: Area,
-    // TODO: Don't allocate this every frame.
-    message_heights: Vec<f32>,
+/// Chat tab filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, RustState, StateElement)]
+pub enum ChatTab {
+    #[default]
+    All,
+    Battle,
+    Party,
+    Guild,
+    Whisper,
 }
 
-struct ChatElement<A> {
-    chat_messages_path: A,
-}
+impl ChatTab {
+    fn matches(&self, color: &MessageColor) -> bool {
+        match self {
+            ChatTab::All => true,
+            ChatTab::Battle => matches!(color, MessageColor::Battle | MessageColor::Rgb { .. }),
+            ChatTab::Party => matches!(color, MessageColor::Party),
+            ChatTab::Guild => matches!(color, MessageColor::Guild),
+            ChatTab::Whisper => matches!(color, MessageColor::Whisper),
+        }
+    }
 
-impl<A> ChatElement<A> {
-    fn new(chat_messages_path: A) -> Self {
-        Self { chat_messages_path }
+    fn label(&self) -> &'static str {
+        match self {
+            ChatTab::All => "All",
+            ChatTab::Battle => "Battle",
+            ChatTab::Party => "Party",
+            ChatTab::Guild => "Guild",
+            ChatTab::Whisper => "Whisper",
+        }
     }
 }
 
-impl<A> Element<ClientState> for ChatElement<A>
+fn message_color_to_color(color: &MessageColor) -> Color {
+    match color {
+        MessageColor::Rgb { red, green, blue } => Color::rgb_u8(*red, *green, *blue),
+        MessageColor::Broadcast => Color::rgb_u8(255, 255, 100),
+        MessageColor::Server => Color::rgb_u8(255, 255, 200),
+        MessageColor::Error => Color::rgb_u8(255, 80, 80),
+        MessageColor::Information => Color::rgb_u8(200, 200, 255),
+        MessageColor::Whisper => Color::rgb_u8(255, 100, 200),
+        MessageColor::Party => Color::rgb_u8(100, 255, 100),
+        MessageColor::Guild => Color::rgb_u8(180, 255, 180),
+        MessageColor::Battle => Color::rgb_u8(255, 200, 100),
+    }
+}
+
+struct ChatLayoutInfo {
+    area: Area,
+    message_heights: Vec<f32>,
+    visible_indices: Vec<usize>,
+}
+
+struct FilteredChatElement<A, T> {
+    chat_messages_path: A,
+    active_tab_path: T,
+}
+
+impl<A, T> FilteredChatElement<A, T> {
+    fn new(chat_messages_path: A, active_tab_path: T) -> Self {
+        Self {
+            chat_messages_path,
+            active_tab_path,
+        }
+    }
+}
+
+impl<A, T> Element<ClientState> for FilteredChatElement<A, T>
 where
     A: Path<ClientState, Vec<ChatMessage>>,
+    T: Path<ClientState, ChatTab>,
 {
     type LayoutInfo = ChatLayoutInfo;
 
@@ -52,47 +104,45 @@ where
         resolver: &mut Resolver<'_, ClientState>,
     ) -> Self::LayoutInfo {
         let chat_messages = state.get(&self.chat_messages_path);
-        // TODO: Theme this.
+        let active_tab = state.get(&self.active_tab_path);
         let message_spacing = 5.0;
 
         let mut total_height = 0.0;
-        let message_heights = chat_messages
-            .iter()
-            .map(|chat_message| {
-                let color = match chat_message.color {
-                    MessageColor::Rgb { red, green, blue } => Color::rgb_u8(red, green, blue),
-                    MessageColor::Broadcast => Color::rgb_u8(255, 255, 100),
-                    MessageColor::Server => Color::rgb_u8(255, 255, 200),
-                    MessageColor::Error => Color::rgb_u8(255, 80, 80),
-                    MessageColor::Information => Color::rgb_u8(200, 200, 255),
-                    MessageColor::Whisper => Color::rgb_u8(255, 100, 200),
-                    MessageColor::Party => Color::rgb_u8(100, 255, 100),
-                    MessageColor::Guild => Color::rgb_u8(180, 255, 180),
-                };
+        let mut message_heights = Vec::new();
+        let mut visible_indices = Vec::new();
 
-                let (size, _) = resolver.get_text_dimensions(
-                    &chat_message.text,
-                    color,
-                    Color::rgb_u8(255, 160, 60),
-                    // TODO: Theme this.
-                    FontSize(14.0),
-                    HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
-                    OverflowBehavior::LineBreak,
-                );
+        for (i, chat_message) in chat_messages.iter().enumerate() {
+            if !active_tab.matches(&chat_message.color) {
+                continue;
+            }
+            visible_indices.push(i);
 
-                if total_height != 0.0 {
-                    total_height += message_spacing;
-                }
+            let color = message_color_to_color(&chat_message.color);
 
-                total_height += size.height();
+            let (size, _) = resolver.get_text_dimensions(
+                &chat_message.text,
+                color,
+                Color::rgb_u8(255, 160, 60),
+                FontSize(14.0),
+                HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
+                OverflowBehavior::LineBreak,
+            );
 
-                size.height()
-            })
-            .collect();
+            if total_height != 0.0 {
+                total_height += message_spacing;
+            }
+
+            total_height += size.height();
+            message_heights.push(size.height());
+        }
 
         let area = resolver.with_height(total_height);
 
-        Self::LayoutInfo { area, message_heights }
+        Self::LayoutInfo {
+            area,
+            message_heights,
+            visible_indices,
+        }
     }
 
     fn lay_out<'a>(
@@ -103,50 +153,72 @@ where
         layout: &mut WindowLayout<'a, ClientState>,
     ) {
         let chat_messages = state.get(&self.chat_messages_path);
-        // TODO: Theme this.
         let message_spacing = 5.0;
 
         let mut offset = 0.0;
-        chat_messages
-            .iter()
-            .zip(layout_info.message_heights.iter())
-            .for_each(|(chat_message, message_height)| {
-                let color = match chat_message.color {
-                    MessageColor::Rgb { red, green, blue } => Color::rgb_u8(red, green, blue),
-                    MessageColor::Broadcast => Color::rgb_u8(255, 255, 100),
-                    MessageColor::Server => Color::rgb_u8(255, 255, 200),
-                    MessageColor::Error => Color::rgb_u8(255, 80, 80),
-                    MessageColor::Information => Color::rgb_u8(200, 200, 255),
-                    MessageColor::Whisper => Color::rgb_u8(255, 100, 200),
-                    MessageColor::Party => Color::rgb_u8(100, 255, 100),
-                    MessageColor::Guild => Color::rgb_u8(180, 255, 180),
-                };
+        for (height_idx, &msg_idx) in layout_info.visible_indices.iter().enumerate() {
+            let chat_message = &chat_messages[msg_idx];
+            let message_height = layout_info.message_heights[height_idx];
+            let color = message_color_to_color(&chat_message.color);
 
-                if offset != 0.0 {
-                    offset += message_spacing;
-                }
+            if offset != 0.0 {
+                offset += message_spacing;
+            }
 
-                let text_area = Area {
-                    left: layout_info.area.left,
-                    top: layout_info.area.top + offset,
-                    width: layout_info.area.width,
-                    height: *message_height,
-                };
+            let text_area = Area {
+                left: layout_info.area.left,
+                top: layout_info.area.top + offset,
+                width: layout_info.area.width,
+                height: message_height,
+            };
 
-                layout.add_text(
-                    text_area,
-                    &chat_message.text,
-                    // TODO: Theme this.
-                    FontSize(14.0),
-                    color,
-                    Color::rgb_u8(255, 160, 60),
-                    HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
-                    VerticalAlignment::Center { offset: 0.0 },
-                    OverflowBehavior::LineBreak,
-                );
+            layout.add_text(
+                text_area,
+                &chat_message.text,
+                FontSize(14.0),
+                color,
+                Color::rgb_u8(255, 160, 60),
+                HorizontalAlignment::Left { offset: 5.0, border: 3.0 },
+                VerticalAlignment::Center { offset: 0.0 },
+                OverflowBehavior::LineBreak,
+            );
 
-                offset += message_height;
-            });
+            offset += message_height;
+        }
+    }
+}
+
+/// Selector that produces the label for a tab button indicating if it's active.
+struct TabLabelSelector<T> {
+    tab: ChatTab,
+    active_tab_path: T,
+    text: std::cell::UnsafeCell<String>,
+}
+
+impl<T> TabLabelSelector<T> {
+    fn new(tab: ChatTab, active_tab_path: T) -> Self {
+        Self {
+            tab,
+            active_tab_path,
+            text: std::cell::UnsafeCell::default(),
+        }
+    }
+}
+
+impl<T> Selector<ClientState, String> for TabLabelSelector<T>
+where
+    T: Path<ClientState, ChatTab>,
+{
+    fn select<'a>(&'a self, state: &'a ClientState) -> Option<&'a String> {
+        let active = self.active_tab_path.follow(state).unwrap();
+        unsafe {
+            *self.text.get() = if *active == self.tab {
+                format!("[{}]", self.tab.label())
+            } else {
+                self.tab.label().to_string()
+            };
+            Some(self.text.as_ref_unchecked())
+        }
     }
 }
 
@@ -154,6 +226,7 @@ where
 #[derive(Default, RustState, StateElement)]
 pub struct ChatWindowState {
     current_text: String,
+    active_tab: ChatTab,
 }
 
 pub struct ChatWindow<A, B> {
@@ -183,6 +256,8 @@ where
         use korangar_interface::prelude::*;
 
         let current_text_path = self.chat_window_state.current_text();
+        let active_tab_path = self.chat_window_state.active_tab();
+
         let send_action = move |state: &Context<ClientState>, queue: &mut EventQueue<ClientState>| {
             let text = state.get(&current_text_path);
 
@@ -193,6 +268,12 @@ where
                 queue.queue(Event::Unfocus);
             }
         };
+
+        let tab_all = TabLabelSelector::new(ChatTab::All, active_tab_path);
+        let tab_battle = TabLabelSelector::new(ChatTab::Battle, active_tab_path);
+        let tab_party = TabLabelSelector::new(ChatTab::Party, active_tab_path);
+        let tab_guild = TabLabelSelector::new(ChatTab::Guild, active_tab_path);
+        let tab_whisper = TabLabelSelector::new(ChatTab::Whisper, active_tab_path);
 
         window! {
             title: client_state().localization().chat_window_title(),
@@ -206,6 +287,41 @@ where
             minimum_height: 150.0,
             maximum_height: 800.0,
             elements: (
+                button! {
+                    text: tab_all,
+                    event: move |state: &Context<ClientState>, _queue: &mut EventQueue<ClientState>| {
+                        state.update_value_with(active_tab_path, |tab| *tab = ChatTab::All);
+                    },
+                    width: 50.0,
+                },
+                button! {
+                    text: tab_battle,
+                    event: move |state: &Context<ClientState>, _queue: &mut EventQueue<ClientState>| {
+                        state.update_value_with(active_tab_path, |tab| *tab = ChatTab::Battle);
+                    },
+                    width: 60.0,
+                },
+                button! {
+                    text: tab_party,
+                    event: move |state: &Context<ClientState>, _queue: &mut EventQueue<ClientState>| {
+                        state.update_value_with(active_tab_path, |tab| *tab = ChatTab::Party);
+                    },
+                    width: 55.0,
+                },
+                button! {
+                    text: tab_guild,
+                    event: move |state: &Context<ClientState>, _queue: &mut EventQueue<ClientState>| {
+                        state.update_value_with(active_tab_path, |tab| *tab = ChatTab::Guild);
+                    },
+                    width: 55.0,
+                },
+                button! {
+                    text: tab_whisper,
+                    event: move |state: &Context<ClientState>, _queue: &mut EventQueue<ClientState>| {
+                        state.update_value_with(active_tab_path, |tab| *tab = ChatTab::Whisper);
+                    },
+                    width: 65.0,
+                },
                 text_box! {
                     ghost_text: client_state().localization().chat_text_box_message(),
                     state: current_text_path,
@@ -217,7 +333,7 @@ where
                 scroll_view! {
                     follow: true,
                     children: (
-                        ChatElement::new(self.chat_messages_path),
+                        FilteredChatElement::new(self.chat_messages_path, active_tab_path),
                     ),
                 },
             ),

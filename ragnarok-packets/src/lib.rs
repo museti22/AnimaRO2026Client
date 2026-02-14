@@ -373,6 +373,7 @@ pub struct Packet0b18 {
     pub unknown: u16,
 }
 
+/// ZC_ACCEPT_ENTER2 (0x02EB) — 13 bytes total.
 /// Sent by the map server as a response to [MapServerLoginPacket] succeeding.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
@@ -526,20 +527,18 @@ pub struct CharacterServerLoginPacket {
     pub sex: Sex,
 }
 
-/// Sent by the client to the map server after after successfully selecting a
-/// character. Attempts to log into the map server using the provided
-/// information.
+/// CZ_ENTER (WantToConnection) — 0x0436, 23 bytes total.
+/// Sent by the client to the map server after successfully selecting a character.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0888)]
+#[header(0x0436)]
 pub struct MapServerLoginPacket {
     pub account_id: AccountId,
     pub character_id: CharacterId,
     pub login_id1: u32,
     pub client_tick: ClientTick,
+    pub login_id2: u32,
     pub sex: Sex,
-    #[new_default]
-    pub unknown: [u8; 4],
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
@@ -664,11 +663,17 @@ pub struct RequestCharacterListSuccessPacket {
 #[ping]
 pub struct MapServerPingPacket {}
 
+/// ZC_PING (0x0B1B) — Server keepalive ping, header-only (2 bytes).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0B1B)]
+pub struct ServerPingPacket {}
+
 /// Sent by the client to the map server when the player wants to move.
 /// Attempts to path the player towards the provided position.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0881)]
+#[header(0x035F)]
 pub struct RequestPlayerMovePacket {
     pub position: WorldPosition,
 }
@@ -793,7 +798,7 @@ pub struct MessageTablePacket {
 /// display name.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0898)]
+#[header(0x0368)]
 pub struct RequestDetailsPacket {
     pub entity_id: EntityId,
 }
@@ -1564,7 +1569,7 @@ pub enum Action {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x088E)]
+#[header(0x0437)]
 pub struct RequestActionPacket {
     pub npc_id: EntityId,
     pub action: Action,
@@ -1572,14 +1577,14 @@ pub struct RequestActionPacket {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0933)]
+#[header(0x0362)]
 pub struct ItemPickupRequestPacket {
     pub entity_id: EntityId,
 }
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x008C)]
+#[header(0x00F3)]
 #[variable_length]
 pub struct GlobalMessagePacket {
     #[length_remaining_off_by_one]
@@ -1668,7 +1673,7 @@ pub struct ServerTickPacket {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0363)]
+#[header(0x0360)]
 #[ping]
 pub struct RequestServerTickPacket {
     pub client_tick: ClientTick,
@@ -1916,7 +1921,7 @@ impl SkillInf {
 pub type SkillType = SkillInf;
 
 /// Skill information entry from ZC_SKILLINFO_LIST (0x010F).
-/// Pre-renewal (PACKETVER_MAIN_NUM 20220406, NO RE): 15 bytes per entry.
+/// rAthena sends 37 bytes per entry (includes 24-byte skill name).
 #[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct SkillInformation {
@@ -1926,10 +1931,10 @@ pub struct SkillInformation {
     pub skill_level: SkillLevel,
     pub spell_point_cost: u16,
     pub attack_range: AttackRange,
+    #[length(24)]
+    pub skill_name: String,
     /// Whether the skill can be leveled up.
     pub upgradable: u8,
-    /// Padding / unused (pre-renewal has no level2 field, but 15-byte alignment requires 2 extra bytes).
-    pub _padding: u16,
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket)]
@@ -3860,7 +3865,7 @@ pub struct DisconnectResponsePacket {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x089B)]
+#[header(0x0438)]
 pub struct UseSkillAtIdPacket {
     pub skill_level: SkillLevel,
     pub skill_id: SkillId,
@@ -3869,7 +3874,7 @@ pub struct UseSkillAtIdPacket {
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0959)]
+#[header(0x0366)]
 pub struct UseSkillOnGroundPacket {
     pub skill_level: SkillLevel,
     pub skill_id: SkillId,
@@ -3905,6 +3910,9 @@ pub struct UseSkillSuccessPacket {
     pub disposable: u8,
 }
 
+/// ZC_ACK_TOUSESKILL (0x0110) — 14 bytes total.
+/// Sent when a skill use fails (e.g. missing requirements).
+/// Note: rAthena includes skill_id (u16) as the first payload field.
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x0110)]
@@ -4365,6 +4373,28 @@ pub struct ShopItemListPacket {
     pub items: Vec<ShopItemInformation>,
 }
 
+/// NPC shop buy item entry (13 bytes per item for PACKETVER >= 20181121).
+/// ZC_PC_PURCHASE_ITEMLIST (0x00C6) items.
+#[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct NpcShopItemInformation {
+    pub price: Price,
+    pub discount_price: Price,
+    pub item_type: u8,
+    pub item_id: ItemId,
+}
+
+/// ZC_PC_PURCHASE_ITEMLIST (0x00C6) - Standard NPC shop buy list.
+/// Each item entry is 13 bytes (u32 item_id for PACKETVER >= 20181121).
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00C6)]
+#[variable_length]
+pub struct NpcShopBuyListPacket {
+    #[repeating_remaining]
+    pub items: Vec<NpcShopItemInformation>,
+}
+
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 #[header(0x00C4)]
@@ -4416,7 +4446,7 @@ pub enum BuyItemResult {
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct BuyItemInformation {
     pub amount: u16,
-    pub item_id: u16,
+    pub item_id: ItemId,
 }
 
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
@@ -4554,10 +4584,10 @@ pub struct StatusChange2Packet {
     pub val3: u32,
 }
 
-/// CZ_USE_ITEM (0x00A7) - Client uses an item from inventory.
+/// CZ_USE_ITEM (0x0439) - Client uses an item from inventory.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x00A7)]
+#[header(0x0439)]
 pub struct UseItemPacket {
     pub index: InventoryIndex,
     pub target_id: AccountId,
@@ -4566,7 +4596,7 @@ pub struct UseItemPacket {
 /// CZ_ITEM_THROW (0x0438) - Client drops an item on the ground.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0438)]
+#[header(0x0363)]
 pub struct ItemDropPacket {
     pub index: InventoryIndex,
     pub amount: u16,
@@ -4575,7 +4605,7 @@ pub struct ItemDropPacket {
 /// CZ_CHANGE_DIRECTION (0x0897) - Client changes facing direction.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0897)]
+#[header(0x0361)]
 pub struct ChangeDirectionRequestPacket {
     pub head_direction: u16,
     pub direction: u8,
@@ -4685,6 +4715,35 @@ pub struct PartyMemberInfoPacket {
     pub account_id: AccountId,
     pub job: i16,
     pub level: i16,
+}
+
+/// A single member entry in ZC_GROUP_LIST (54 bytes each).
+#[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct PartyGroupListEntry {
+    pub account_id: AccountId,
+    pub character_id: CharacterId,
+    #[length(24)]
+    pub name: String,
+    #[length(16)]
+    pub map_name: String,
+    pub leader: u8,
+    pub offline: u8,
+    pub class: i16,
+    pub base_level: i16,
+}
+
+/// ZC_GROUP_LIST (0x00FB) - Full party member list.
+/// Format: header(2) + length(2) + party_name(24) + members(N * 54)
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x00FB)]
+#[variable_length]
+pub struct PartyGroupListPacket {
+    #[length(24)]
+    pub party_name: String,
+    #[repeating_remaining]
+    pub members: Vec<PartyGroupListEntry>,
 }
 
 #[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
@@ -4834,10 +4893,69 @@ pub struct SelectPetEggPacket {
     pub index: u16,
 }
 
+/// ZC_PETEGG_LIST (0x01A6) - Server sends list of pet eggs the player can hatch.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A6)]
+#[variable_length]
+pub struct PetEggListPacket {
+    #[repeating_remaining]
+    pub eggs: Vec<PetEggEntry>,
+}
+
+/// Entry in the pet egg list.
+#[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct PetEggEntry {
+    pub index: u16,
+}
+
+/// CZ_TRYCAPTURE_MONSTER (0x019F) - Client attempts to capture a monster as pet.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x019F)]
+pub struct TryCaptureMonsterPacket {
+    pub target_id: EntityId,
+}
+
+/// ZC_PET_CATCH_RESULT (0x01A0) - Server notifies pet capture result.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A0)]
+pub struct PetCatchResultPacket {
+    pub result: u8,
+}
+
+/// CZ_RENAME_PET (0x01A5) - Client requests to rename their pet.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A5)]
+pub struct RenamePetPacket {
+    #[length(24)]
+    pub name: String,
+}
+
+/// CZ_PET_ACT (0x01A9) - Client sends pet emotion/action.
+#[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01A9)]
+pub struct PetActRequestPacket {
+    pub emotion: u32,
+}
+
+/// ZC_FEED_MER (0x022F) - Server notifies mercenary/homunculus feeding result.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x022F)]
+pub struct FeedMerPacket {
+    pub result: u8,
+    pub food_id: u16,
+}
+
 /// CZ_PARTY_JOIN_REQ - Client invites player to party.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x086D)]
+#[header(0x02C4)]
 pub struct PartyJoinRequestPacket {
     #[length(24)]
     pub name: String,
@@ -4855,7 +4973,7 @@ pub struct PartyJoinResponsePacket {
 /// CZ_REQNAME_BYGID - Client requests character name by GID.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x094C)]
+#[header(0x0369)]
 pub struct RequestNameByGidPacket {
     pub character_id: CharacterId,
 }
@@ -4863,7 +4981,7 @@ pub struct RequestNameByGidPacket {
 /// CZ_MOVE_ITEM_FROM_BODY_TO_STORE - Client moves item to storage.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x08AC)]
+#[header(0x0364)]
 pub struct MoveItemToStoragePacket {
     pub index: u16,
     pub amount: u32,
@@ -4872,7 +4990,7 @@ pub struct MoveItemToStoragePacket {
 /// CZ_MOVE_ITEM_FROM_STORE_TO_BODY - Client moves item from storage.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
-#[header(0x0874)]
+#[header(0x0365)]
 pub struct MoveItemFromStoragePacket {
     pub index: u16,
     pub amount: u32,
@@ -5116,6 +5234,64 @@ pub struct GuildChatSendPacket {
     pub message: String,
 }
 
+/// ZC_GUILD_INFO2 (0x01B6) - Guild basic info.
+/// Fixed 114 bytes: header(2) + guild_id(4) + level(4) + connected(4) + max_member(4)
+///         + average_level(4) + exp(4) + next_exp(4) + tax_points(4) + tend_lr(4) + tend_du(4)
+///         + emblem_id(4) + guild_name(24) + master_name(24) + territory(24)
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x01B6)]
+pub struct GuildInfoPacket {
+    pub guild_id: u32,
+    pub level: u32,
+    pub connected_count: u32,
+    pub max_member: u32,
+    pub average_level: u32,
+    pub exp: u32,
+    pub next_exp: u32,
+    pub tax_points: u32,
+    pub tendency_lr: u32,
+    pub tendency_du: u32,
+    pub emblem_id: u32,
+    #[length(24)]
+    pub guild_name: String,
+    #[length(24)]
+    pub master_name: String,
+    #[length(24)]
+    pub territory: String,
+}
+
+/// A single member entry in ZC_MEMBERMGR_INFO.
+#[derive(Debug, Clone, ByteConvertable, FixedByteSize)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+pub struct GuildMemberEntry {
+    pub account_id: u32,
+    pub character_id: u32,
+    pub hair_style: u16,
+    pub hair_color: u16,
+    pub sex: u16,
+    pub job: u16,
+    pub level: u16,
+    pub contribution_exp: u32,
+    pub online: u32,
+    pub position: u32,
+    #[length(50)]
+    pub memo: String,
+    #[length(24)]
+    pub name: String,
+}
+
+/// ZC_MEMBERMGR_INFO (0x0154) - Guild member list.
+/// Format: header(2) + length(2) + members(variable)
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0154)]
+#[variable_length]
+pub struct GuildMemberListPacket {
+    #[repeating_remaining]
+    pub members: Vec<GuildMemberEntry>,
+}
+
 /// CZ_UPGRADESKILL (0x0112) - Client requests to increase a skill level.
 #[derive(Debug, Clone, Packet, ClientPacket, MapServer)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
@@ -5125,7 +5301,7 @@ pub struct SkillUpPacket {
 }
 
 /// Sub-structure for items in a player vending shop list.
-/// Each entry is 22 bytes.
+/// Each entry is 30 bytes (PACKETVER >= 20181121, card slots are u32).
 #[derive(Debug, Clone, FixedByteSize, ByteConvertable)]
 #[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
 pub struct VendingItemInformation {
@@ -5137,10 +5313,10 @@ pub struct VendingItemInformation {
     pub is_identified: u8,
     pub is_damaged: u8,
     pub refine: u8,
-    pub card1: u16,
-    pub card2: u16,
-    pub card3: u16,
-    pub card4: u16,
+    pub card1: u32,
+    pub card2: u32,
+    pub card3: u32,
+    pub card4: u32,
 }
 
 /// ZC_PC_PURCHASE_ITEMLIST_FROMMC2 (0x0800) - Vending shop item list sent to
@@ -5203,4 +5379,34 @@ pub enum VendingPurchaseResult {
 #[header(0x0135)]
 pub struct VendingPurchaseResultPacket {
     pub result: VendingPurchaseResult,
+}
+
+/// ZC_PROPERTY_HOMUN (0x0BA4) - Server sends homunculus properties/stats.
+#[derive(Debug, Clone, Packet, ServerPacket, MapServer)]
+#[cfg_attr(feature = "interface", derive(rust_state::RustState, korangar_interface::element::StateElement))]
+#[header(0x0BA4)]
+pub struct PropertyHomunculusPacket {
+    #[length(24)]
+    pub name: String,
+    pub modified: u8,
+    pub level: u16,
+    pub hunger: u16,
+    pub intimacy: u16,
+    pub equip: u16,
+    pub atk: u16,
+    pub matk: u16,
+    pub hit: u16,
+    pub critical: u16,
+    pub def: u16,
+    pub mdef: u16,
+    pub flee: u16,
+    pub aspd: u16,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub sp: i16,
+    pub max_sp: i16,
+    pub exp: i32,
+    pub max_exp: i32,
+    pub skill_points: u16,
+    pub attack_range: u16,
 }

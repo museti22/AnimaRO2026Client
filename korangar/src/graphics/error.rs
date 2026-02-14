@@ -1,3 +1,4 @@
+#[cfg(feature = "debug")]
 use korangar_debug::logging::{Colorize, print_debug};
 use wgpu::Error;
 
@@ -8,7 +9,11 @@ pub fn error_handler(error: Error) {
         Error::Internal { source, description } => ("Internal", format!("{source}: {description}")),
     };
 
+    #[cfg(feature = "debug")]
     print_debug!("wgpu [{}] [{}]: {}", message_type.yellow(), "error".red(), message);
+
+    #[cfg(not(feature = "debug"))]
+    eprintln!("[wgpu] [{message_type}] [error]: {message}");
 
     #[cfg(debug_assertions)]
     panic!("WGPU error found");

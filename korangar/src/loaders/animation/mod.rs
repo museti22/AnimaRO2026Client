@@ -90,6 +90,10 @@ impl AnimationLoader {
                             sprite_number += animation_pair.sprites.palette_size;
                         }
 
+                        if sprite_number >= animation_pair.sprites.textures.len() {
+                            continue;
+                        }
+
                         let texture_size = animation_pair.sprites.textures[sprite_number].get_size();
                         let mut height = texture_size.height;
                         let mut width = texture_size.width;

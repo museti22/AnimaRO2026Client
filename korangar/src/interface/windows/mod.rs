@@ -21,6 +21,7 @@ mod game_settings;
 mod graphics_settings;
 mod guild;
 mod hotbar;
+mod hud;
 mod interface_settings;
 mod keybinding_settings;
 mod inventory;
@@ -53,6 +54,9 @@ mod party_invite;
 mod trade;
 mod trade_request;
 mod vending;
+mod pet_egg_select;
+mod cutin;
+mod context_menu;
 
 use serde::{Deserialize, Serialize};
 
@@ -79,6 +83,7 @@ pub use self::game_settings::GameSettingsWindow;
 pub use self::graphics_settings::GraphicsSettingsWindow;
 pub use self::guild::GuildWindow;
 pub use self::hotbar::HotbarWindow;
+pub use self::hud::HudWindow;
 pub use self::interface_settings::InterfaceSettingsWindow;
 pub use self::inventory::InventoryWindow;
 pub use self::keybinding_settings::KeybindingSettingsWindow;
@@ -111,6 +116,9 @@ pub use self::party_invite::PartyInviteWindow;
 pub use self::trade::TradeWindow;
 pub use self::trade_request::TradeRequestWindow;
 pub use self::vending::VendingWindow;
+pub use self::pet_egg_select::PetEggSelectWindow;
+pub use self::cutin::CutinWindow;
+pub use self::context_menu::ContextMenuWindow;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindowClass {
@@ -128,6 +136,7 @@ pub enum WindowClass {
     InterfaceSettings,
     GraphicsSettings,
     Hotbar,
+    Hud,
     Inventory,
     Equipment,
     Guild,
@@ -153,6 +162,9 @@ pub enum WindowClass {
     PartyInvite,
     Trade,
     TradeRequest,
+    PetEggSelect,
+    Cutin,
+    ContextMenu,
     #[cfg(feature = "debug")]
     Maps,
     #[cfg(feature = "debug")]
