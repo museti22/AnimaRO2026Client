@@ -142,22 +142,24 @@ pub enum EntityType {
 
 impl EntityType {
     /// Determine entity type from the server's object_type field (u8).
-    /// rAthena object_type values:
-    ///   0 = PC, 1 = NPC, 5 = MOB, 4 = HOMUN, 6 = MERC, 7 = ELEM
+    /// rAthena object_type values for PACKETVER >= 20170726:
+    ///   0x0 = PC, 0x5 = MOB, 0x6 = NPC, 0x7 = PET, 0x8 = HOM,
+    ///   0x9 = MER, 0xA = ELEM, 0xC = walking NPC, 0xD = ABR mob, 0xE = bionic mob
     pub fn from_object_type(object_type: u8, job_id: usize) -> Self {
         match object_type {
-            0 => EntityType::Player,
-            1 => {
+            0x0 => EntityType::Player,
+            0x1 | 0x6 | 0xC => {
                 match job_id {
                     45 => EntityType::Warp,
                     111 => EntityType::Hidden,
                     _ => EntityType::Npc,
                 }
             }
-            4 => EntityType::Homunculus,
-            5 => EntityType::Monster,
-            6 => EntityType::Mercenary,
-            7 => EntityType::Elemental,
+            0x5 | 0xD | 0xE => EntityType::Monster,
+            0x7 => EntityType::Npc, // PET - render as NPC
+            0x8 => EntityType::Homunculus,
+            0x9 => EntityType::Mercenary,
+            0xA => EntityType::Elemental,
             _ => Self::from_job_id(job_id),
         }
     }

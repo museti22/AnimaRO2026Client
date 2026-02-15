@@ -3,6 +3,7 @@ mod item_name;
 mod item_resource;
 mod job_identity;
 mod map_sky_data;
+mod skill_name;
 
 use encoding_rs::EUC_KR;
 
@@ -11,12 +12,14 @@ pub use self::item_name::{ItemName, ItemNameKey};
 pub use self::item_resource::{ItemResource, ItemResourceKey};
 pub use self::job_identity::JobIdentity;
 pub use self::map_sky_data::MapSkyData;
+pub use self::skill_name::SkillName;
 use crate::loaders::GameFileLoader;
 
 pub struct Library {
     job_identity_table: <JobIdentity as Table>::Storage,
     item_info_table: <ItemInfo as Table>::Storage,
     map_sky_data_table: <MapSkyData as Table>::Storage,
+    skill_name_table: <SkillName as Table>::Storage,
 }
 
 impl Library {
@@ -24,11 +27,13 @@ impl Library {
         let job_identity_table = JobIdentity::load(game_file_loader)?;
         let item_info_table = ItemInfo::load(game_file_loader)?;
         let map_sky_data_table = MapSkyData::load(game_file_loader)?;
+        let skill_name_table = SkillName::load(game_file_loader)?;
 
         Ok(Self {
             job_identity_table,
             item_info_table,
             map_sky_data_table,
+            skill_name_table,
         })
     }
 

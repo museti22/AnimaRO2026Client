@@ -1809,6 +1809,7 @@ pub struct EntityAppearPacket {
     pub position: WorldPosition,
     pub x_size: u8,
     pub y_size: u8,
+    pub state: u8,
     pub c_level: u16,
     pub font: u16,
     pub maximum_health_points: i32,

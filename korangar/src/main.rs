@@ -1724,12 +1724,20 @@ impl Client {
                     self.client_state.follow_mut(client_state().inventory()).remove_item(index, amount);
                 }
                 NetworkEvent::SkillTree { skill_information } => {
+                    eprintln!("[HOTBAR-DEBUG] SkillTree received: {} skill entries from server", skill_information.len());
+                    for si in &skill_information {
+                        eprintln!("[HOTBAR-DEBUG]   skill_id={}, inf={}, level={}, name='{}'",
+                            si.skill_id.0, si.skill_inf.0, si.skill_level.0, si.skill_name.trim_end_matches('\0'));
+                    }
                     self.client_state.follow_mut(client_state().skill_tree()).fill(
                         &self.sprite_loader,
                         &self.action_loader,
                         skill_information,
                         client_tick,
+                        &self.library,
                     );
+                    let tree_count = self.client_state.follow(client_state().skill_tree()).skill_count();
+                    eprintln!("[HOTBAR-DEBUG] SkillTree after fill: {} skills loaded (sprites found)", tree_count);
                 }
                 NetworkEvent::UpdateEquippedPosition { index, equipped_position } => {
                     self.client_state
@@ -1881,20 +1889,25 @@ impl Client {
                     *self.client_state.follow_mut(client_state().friend_list()) = friend_list;
                 }
                 NetworkEvent::SetHotkeyData { tab, hotkeys } => {
+                    eprintln!("[HOTBAR-DEBUG] SetHotkeyData received: tab={}, {} hotkeys", tab.0, hotkeys.len());
                     // FIX: Since we only have one hotbar at the moment, we ignore
                     // everything but 0.
                     if tab.0 != 0 {
+                        eprintln!("[HOTBAR-DEBUG]   Ignoring tab {} (only tab 0 supported)", tab.0);
                         continue;
                     }
 
                     for (index, hotkey) in hotkeys.into_iter().take(10).enumerate() {
                         match hotkey {
                             HotkeyState::Bound(hotkey) => {
+                                eprintln!("[HOTBAR-DEBUG]   Slot {}: is_skill={}, skill_id={}, level={}",
+                                    index, hotkey.is_skill, hotkey.skill_id, hotkey.quantity_or_skill_level.0);
                                 let Some(mut skill) = self
                                     .client_state
                                     .follow(client_state().skill_tree())
                                     .find_skill(SkillId(hotkey.skill_id as u16))
                                 else {
+                                    eprintln!("[HOTBAR-DEBUG]   Slot {}: skill_id {} NOT FOUND in skill tree! Clearing slot.", index, hotkey.skill_id);
                                     self.client_state
                                         .follow_mut(client_state().hotbar())
                                         .clear_slot(&mut self.networking_system, HotbarSlot(index as u16));
@@ -3514,9 +3527,12 @@ impl Client {
                     _ => {}
                 },
                 InputEvent::CastSkill { slot } => {
+                    eprintln!("[HOTBAR-DEBUG] CastSkill pressed: slot={}", slot.0);
                     if let Some(skill) = self.client_state.follow(client_state().hotbar()).get_skill_in_slot(slot).as_ref() {
+                        eprintln!("[HOTBAR-DEBUG]   Found skill: id={}, inf={}, name='{}'", skill.skill_id.0, skill.skill_inf.0, skill.skill_name);
                         let inf = skill.skill_inf;
                         if inf.is_passive() {
+                            eprintln!("[HOTBAR-DEBUG]   Skill is PASSIVE, ignoring");
                             // Passive skills can't be activated
                         } else if inf.is_self_only() {
                             // Self-only skill -- cast immediately on self
@@ -3546,6 +3562,8 @@ impl Client {
                                 skill_level: skill.skill_level,
                             });
                         }
+                    } else {
+                        eprintln!("[HOTBAR-DEBUG]   Slot {} is EMPTY, no skill to cast", slot.0);
                     }
                 }
                 InputEvent::StopSkill { slot } => {
