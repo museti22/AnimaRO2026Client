@@ -1,0 +1,202 @@
+//@version=5
+// =============================================================================
+// Estrategia Intradia Nasdaq - Order Flow HTF + Liquidez + CVD
+// (NQ / US100 / QQQ) -- pensada para grafico de 5 minutos
+// =============================================================================
+// AVISO LEGAL: Fines EDUCATIVOS / de investigacion. NO es asesoramiento
+// financiero. El order flow REAL (footprint, DOM, delta tick a tick) NO existe
+// en Pine Script; aqui se usan APROXIMACIONES basadas en OHLCV. Haz siempre
+// backtesting y forward-testing en demo antes de operar capital real.
+//
+// CONCEPTO (estilo Smart Money / ICT):
+//   1) SESGO HTF (1h): solo se opera A FAVOR de la tendencia de la temporalidad
+//      mayor (order flow de fondo). request.security sin lookahead = sin repaint.
+//   2) LIQUIDEZ: se marcan las zonas donde reposan stops -> maximos/minimos de
+//      swing (pivotes), maximo/minimo del dia anterior (PDH/PDL) y maximo/minimo
+//      de la sesion en curso.
+//   3) ENTRADA = LIQUIDITY SWEEP + REVERSION: el precio barre una zona de
+//      liquidez (cazando stops) y CIERRA de nuevo dentro del rango -> entrada
+//      a favor del sesgo HTF. El stop va al otro lado del barrido (logica
+//      natural), el TP por ratio Riesgo:Beneficio.
+//   4) CVD (opcional): proxy de presion compradora/vendedora por volumen como
+//      filtro de confirmacion.
+// =============================================================================
+
+strategy(title              = "NQ Intraday - HTF OrderFlow + Liquidez + CVD",
+         shorttitle         = "NQ OF/Liq",
+         overlay            = true,
+         pyramiding         = 0,
+         initial_capital    = 10000,
+         default_qty_type   = strategy.percent_of_equity,
+         default_qty_value  = 100,
+         commission_type    = strategy.commission.percent,
+         commission_value   = 0.02,
+         slippage           = 2,
+         calc_on_every_tick = false,
+         process_orders_on_close = true)
+
+// -----------------------------------------------------------------------------
+// 1. INPUTS
+// -----------------------------------------------------------------------------
+grpHtf = "Sesgo Temporalidad Mayor (Order Flow)"
+htfTf      = input.timeframe("60", "Temporalidad mayor (sesgo)", group = grpHtf,
+     tooltip = "Recomendado 60 (1h) para operar el grafico de 5m en Nasdaq.")
+htfEmaFast = input.int(21, "EMA rapida HTF", minval = 1, group = grpHtf)
+htfEmaSlow = input.int(50, "EMA lenta HTF",  minval = 1, group = grpHtf)
+
+grpLiq = "Liquidez"
+pivLeft     = input.int(8, "Pivote: barras izquierda", minval = 1, group = grpLiq)
+pivRight    = input.int(8, "Pivote: barras derecha",   minval = 1, group = grpLiq)
+usePdhPdl   = input.bool(true, "Usar liquidez PDH/PDL (dia anterior)", group = grpLiq)
+useSessLiq  = input.bool(true, "Usar maximo/minimo de la sesion",      group = grpLiq)
+
+grpCvd = "CVD (proxy order flow por volumen)"
+useCvd = input.bool(true, "Usar CVD como filtro de confirmacion", group = grpCvd,
+     tooltip = "Proxy basado en volumen de la vela (no es delta tick a tick real).")
+
+grpRisk = "Gestion de riesgo"
+atrLen        = input.int(14,   "Longitud ATR", minval = 1, group = grpRisk)
+stopBufferMul = input.float(0.25, "Buffer ATR mas alla del barrido (SL)", minval = 0.0, step = 0.05, group = grpRisk)
+rrRatio       = input.float(2.0, "Ratio Riesgo:Beneficio (TP)", minval = 0.5, step = 0.1, group = grpRisk)
+riskPct       = input.float(1.0, "Riesgo por operacion (% equity)", minval = 0.1, maxval = 100, step = 0.1, group = grpRisk)
+
+grpSes = "Sesion"
+sessionTime = input.session("0930-1600", "Horario de trading (ET)", group = grpSes)
+allowLongs  = input.bool(true,  "Permitir largos",  group = grpSes)
+allowShorts = input.bool(true,  "Permitir cortos",  group = grpSes)
+closeAtEnd  = input.bool(true,  "Cerrar al final de sesion (sin overnight)", group = grpSes)
+flatTime    = input.session("1555-1600", "Ventana de cierre forzado", group = grpSes)
+
+// -----------------------------------------------------------------------------
+// 2. SESION
+// -----------------------------------------------------------------------------
+inSession(sess) => not na(time(timeframe.period, sess, "America/New_York"))
+inTrade   = inSession(sessionTime)
+inFlatWin = inSession(flatTime)
+newDay    = ta.change(time("D")) != 0
+
+// -----------------------------------------------------------------------------
+// 3. SESGO HTF (order flow de fondo) -- request.security SIN lookahead
+// -----------------------------------------------------------------------------
+htfFast = request.security(syminfo.tickerid, htfTf, ta.ema(close, htfEmaFast), lookahead = barmerge.lookahead_off)
+htfSlow = request.security(syminfo.tickerid, htfTf, ta.ema(close, htfEmaSlow), lookahead = barmerge.lookahead_off)
+htfBull = htfFast > htfSlow
+htfBear = htfFast < htfSlow
+
+// -----------------------------------------------------------------------------
+// 4. NIVELES DE LIQUIDEZ
+// -----------------------------------------------------------------------------
+// 4a. Pivotes (swing highs/lows) = liquidez de corto plazo
+ph = ta.pivothigh(high, pivLeft, pivRight)
+pl = ta.pivotlow(low,  pivLeft, pivRight)
+var float lastPH = na
+var float lastPL = na
+if not na(ph)
+    lastPH := ph
+if not na(pl)
+    lastPL := pl
+
+// 4b. PDH / PDL (dia anterior) -- lookahead_on sobre [1] es seguro y no repinta
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+// 4c. Maximo / minimo de la sesion en curso
+var float sessHi = na
+var float sessLo = na
+if newDay
+    sessHi := high
+    sessLo := low
+else
+    sessHi := math.max(nz(sessHi, high), high)
+    sessLo := math.min(nz(sessLo, low),  low)
+
+// -----------------------------------------------------------------------------
+// 5. CVD (proxy de order flow por volumen, reseteado por sesion)
+// -----------------------------------------------------------------------------
+delta = close > open ? volume : close < open ? -volume : 0.0
+var float cvd = 0.0
+cvd := newDay ? delta : nz(cvd[1]) + delta
+cvdBull = not useCvd or cvd > cvd[1]   // presion compradora creciente
+cvdBear = not useCvd or cvd < cvd[1]   // presion vendedora creciente
+
+// -----------------------------------------------------------------------------
+// 6. DETECCION DE LIQUIDITY SWEEP + REVERSION
+// -----------------------------------------------------------------------------
+// Barrido alcista (sell-side): se perfora un MINIMO de liquidez y se cierra
+// por encima -> stops de vendedores cazados, posible giro al alza.
+sweepLevelBull(level) => not na(level) and low < level and close > level
+// Barrido bajista (buy-side): se perfora un MAXIMO de liquidez y se cierra
+// por debajo -> stops de compradores cazados, posible giro a la baja.
+sweepLevelBear(level) => not na(level) and high > level and close < level
+
+bullSweep = sweepLevelBull(lastPL)
+           or (usePdhPdl  and sweepLevelBull(pdl))
+           or (useSessLiq and sweepLevelBull(sessLo[1]))
+
+bearSweep = sweepLevelBear(lastPH)
+           or (usePdhPdl  and sweepLevelBear(pdh))
+           or (useSessLiq and sweepLevelBear(sessHi[1]))
+
+// -----------------------------------------------------------------------------
+// 7. CONDICIONES DE ENTRADA (sweep + sesgo HTF + CVD + sesion)
+// -----------------------------------------------------------------------------
+longCond  = allowLongs  and inTrade and not inFlatWin and htfBull and bullSweep and cvdBull
+shortCond = allowShorts and inTrade and not inFlatWin and htfBear and bearSweep and cvdBear
+
+// -----------------------------------------------------------------------------
+// 8. EJECUCION + GESTION DE RIESGO (stop al otro lado del barrido)
+// -----------------------------------------------------------------------------
+atr = ta.atr(atrLen)
+var float pendingStop = na
+
+if longCond and strategy.position_size == 0
+    stopLevel = low - atr * stopBufferMul          // bajo el wick del barrido
+    stopDist  = math.max(close - stopLevel, syminfo.mintick)
+    qty       = stopDist > 0 ? (strategy.equity * (riskPct / 100.0)) / stopDist : na
+    pendingStop := stopLevel
+    strategy.entry("Long", strategy.long, qty = qty)
+
+if shortCond and strategy.position_size == 0
+    stopLevel = high + atr * stopBufferMul         // sobre el wick del barrido
+    stopDist  = math.max(stopLevel - close, syminfo.mintick)
+    qty       = stopDist > 0 ? (strategy.equity * (riskPct / 100.0)) / stopDist : na
+    pendingStop := stopLevel
+    strategy.entry("Short", strategy.short, qty = qty)
+
+if strategy.position_size > 0
+    sl = pendingStop
+    risk = strategy.position_avg_price - sl
+    tp = strategy.position_avg_price + risk * rrRatio
+    strategy.exit("Long Exit", from_entry = "Long", stop = sl, limit = tp)
+
+if strategy.position_size < 0
+    sl = pendingStop
+    risk = sl - strategy.position_avg_price
+    tp = strategy.position_avg_price - risk * rrRatio
+    strategy.exit("Short Exit", from_entry = "Short", stop = sl, limit = tp)
+
+// Cierre forzado al final de la sesion (sin riesgo overnight)
+if closeAtEnd and inFlatWin and strategy.position_size != 0
+    strategy.close_all(comment = "Cierre sesion")
+
+// -----------------------------------------------------------------------------
+// 9. VISUALIZACION
+// -----------------------------------------------------------------------------
+plot(usePdhPdl ? pdh : na, "PDH", color = color.new(color.red,   40), style = plot.style_linebr, linewidth = 1)
+plot(usePdhPdl ? pdl : na, "PDL", color = color.new(color.green, 40), style = plot.style_linebr, linewidth = 1)
+plot(useSessLiq ? sessHi : na, "Sesion Hi", color = color.new(color.orange, 60), style = plot.style_stepline)
+plot(useSessLiq ? sessLo : na, "Sesion Lo", color = color.new(color.orange, 60), style = plot.style_stepline)
+plot(lastPH, "Swing High liquidez", color = color.new(color.maroon, 50), style = plot.style_circles)
+plot(lastPL, "Swing Low liquidez",  color = color.new(color.teal,   50), style = plot.style_circles)
+
+// Color de fondo segun sesgo HTF
+bgcolor(not inTrade ? na : htfBull ? color.new(color.green, 92) : htfBear ? color.new(color.red, 92) : na, title = "Sesgo HTF en sesion")
+
+plotshape(longCond,  title = "Long (sweep+HTF)",  style = shape.triangleup,   location = location.belowbar, color = color.green, size = size.small)
+plotshape(shortCond, title = "Short (sweep+HTF)", style = shape.triangledown, location = location.abovebar, color = color.red,   size = size.small)
+
+// -----------------------------------------------------------------------------
+// 10. ALERTAS
+// -----------------------------------------------------------------------------
+alertcondition(longCond,  "Long: barrido liquidez + HTF alcista",  "NQ: barrido de minimos + sesgo HTF alcista -> LONG")
+alertcondition(shortCond, "Short: barrido liquidez + HTF bajista", "NQ: barrido de maximos + sesgo HTF bajista -> SHORT")

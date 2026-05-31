@@ -1,0 +1,146 @@
+//@version=5
+// =============================================================================
+// Estrategia Intradía Nasdaq (NQ / US100 / QQQ)
+// =============================================================================
+// AVISO LEGAL: Este script tiene fines EDUCATIVOS y de investigacion. No es
+// asesoramiento financiero. El trading apalancado de indices conlleva un alto
+// riesgo de perdida. Haz siempre backtesting y forward-testing en demo antes
+// de operar con capital real.
+//
+// Logica (confluencia de tendencia + momentum + sesion):
+//   - Tendencia:  EMA rapida vs EMA lenta + filtro VWAP de sesion.
+//   - Momentum:   RSI por encima/debajo de su linea media.
+//   - Filtro:     Solo opera dentro de la sesion regular de EE. UU. (RTH).
+//   - Volatilidad: Stops y objetivos dinamicos basados en ATR.
+//   - Gestion:    Riesgo por operacion configurable, trailing opcional,
+//                 cierre forzado al final de la sesion (sin overnight).
+// =============================================================================
+
+strategy(title              = "Nasdaq Intradia - EMA/VWAP/RSI + ATR",
+         shorttitle         = "NQ Intraday",
+         overlay            = true,
+         pyramiding         = 0,
+         initial_capital    = 10000,
+         default_qty_type   = strategy.percent_of_equity,
+         default_qty_value  = 100,
+         commission_type    = strategy.commission.percent,
+         commission_value   = 0.02,
+         slippage           = 2,
+         calc_on_every_tick = false,
+         process_orders_on_close = true)
+
+// -----------------------------------------------------------------------------
+// 1. INPUTS
+// -----------------------------------------------------------------------------
+grpTrend = "Tendencia"
+emaFastLen = input.int(9,  "EMA rapida",  minval = 1, group = grpTrend)
+emaSlowLen = input.int(21, "EMA lenta",   minval = 1, group = grpTrend)
+useVwap    = input.bool(true, "Usar filtro VWAP de sesion", group = grpTrend)
+
+grpMom = "Momentum"
+rsiLen   = input.int(14, "Longitud RSI", minval = 2, group = grpMom)
+rsiLong  = input.int(50, "RSI minimo para largos",  minval = 1, maxval = 99, group = grpMom)
+rsiShort = input.int(50, "RSI maximo para cortos",  minval = 1, maxval = 99, group = grpMom)
+
+grpRisk = "Gestion de riesgo"
+atrLen      = input.int(14,   "Longitud ATR", minval = 1, group = grpRisk)
+atrStopMult = input.float(1.5, "Multiplo ATR para Stop Loss", minval = 0.1, step = 0.1, group = grpRisk)
+rrRatio     = input.float(2.0, "Ratio Riesgo:Beneficio (TP)", minval = 0.5, step = 0.1, group = grpRisk)
+riskPct     = input.float(1.0, "Riesgo por operacion (% equity)", minval = 0.1, maxval = 100, step = 0.1, group = grpRisk)
+useTrailing = input.bool(false, "Usar trailing stop (ATR)", group = grpRisk)
+
+grpSes = "Sesion"
+sessionTime  = input.session("0930-1600", "Horario de trading (hora del exchange)", group = grpSes)
+allowLongs   = input.bool(true,  "Permitir largos",  group = grpSes)
+allowShorts  = input.bool(true,  "Permitir cortos",  group = grpSes)
+closeAtEnd   = input.bool(true,  "Cerrar al final de la sesion (sin overnight)", group = grpSes)
+flatTime     = input.session("1555-1600", "Ventana de cierre forzado", group = grpSes)
+
+// -----------------------------------------------------------------------------
+// 2. CALCULOS
+// -----------------------------------------------------------------------------
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+rsi     = ta.rsi(close, rsiLen)
+atr     = ta.atr(atrLen)
+vwapVal = ta.vwap(hlc3)
+
+// Helper: ¿estamos dentro de una sesion?
+inSession(sess) => not na(time(timeframe.period, sess, "America/New_York"))
+
+inTrade   = inSession(sessionTime)
+inFlatWin = inSession(flatTime)
+
+// Filtro VWAP (si esta desactivado, no condiciona)
+vwapLongOk  = not useVwap or close > vwapVal
+vwapShortOk = not useVwap or close < vwapVal
+
+// -----------------------------------------------------------------------------
+// 3. CONDICIONES DE ENTRADA
+// -----------------------------------------------------------------------------
+trendUp   = emaFast > emaSlow
+trendDown = emaFast < emaSlow
+
+longSignal  = trendUp   and ta.crossover(close, emaFast)  and rsi >= rsiLong  and vwapLongOk
+shortSignal = trendDown and ta.crossunder(close, emaFast) and rsi <= rsiShort and vwapShortOk
+
+longCond  = allowLongs  and inTrade and not inFlatWin and longSignal
+shortCond = allowShorts and inTrade and not inFlatWin and shortSignal
+
+// -----------------------------------------------------------------------------
+// 4. SIZING POR RIESGO (basado en distancia de stop = ATR * multiplo)
+// -----------------------------------------------------------------------------
+stopDist = atr * atrStopMult
+// Cantidad = (equity * riesgo%) / distancia-de-stop-por-unidad
+riskCapital = strategy.equity * (riskPct / 100.0)
+qty = stopDist > 0 ? riskCapital / stopDist : na
+
+// -----------------------------------------------------------------------------
+// 5. EJECUCION DE ORDENES
+// -----------------------------------------------------------------------------
+if longCond and strategy.position_size == 0
+    strategy.entry("Long", strategy.long, qty = qty)
+
+if shortCond and strategy.position_size == 0
+    strategy.entry("Short", strategy.short, qty = qty)
+
+// Stops / Targets para posiciones abiertas
+if strategy.position_size > 0
+    entryPrice = strategy.position_avg_price
+    sl = entryPrice - stopDist
+    tp = entryPrice + stopDist * rrRatio
+    if useTrailing
+        strategy.exit("Long Exit", from_entry = "Long", stop = sl, limit = tp, trail_points = stopDist / syminfo.mintick, trail_offset = stopDist / syminfo.mintick)
+    else
+        strategy.exit("Long Exit", from_entry = "Long", stop = sl, limit = tp)
+
+if strategy.position_size < 0
+    entryPrice = strategy.position_avg_price
+    sl = entryPrice + stopDist
+    tp = entryPrice - stopDist * rrRatio
+    if useTrailing
+        strategy.exit("Short Exit", from_entry = "Short", stop = sl, limit = tp, trail_points = stopDist / syminfo.mintick, trail_offset = stopDist / syminfo.mintick)
+    else
+        strategy.exit("Short Exit", from_entry = "Short", stop = sl, limit = tp)
+
+// Cierre forzado al final de la sesion (evitar riesgo overnight)
+if closeAtEnd and inFlatWin and strategy.position_size != 0
+    strategy.close_all(comment = "Cierre sesion")
+
+// -----------------------------------------------------------------------------
+// 6. VISUALIZACION
+// -----------------------------------------------------------------------------
+plot(emaFast, "EMA rapida", color = color.new(color.aqua, 0), linewidth = 1)
+plot(emaSlow, "EMA lenta",  color = color.new(color.orange, 0), linewidth = 2)
+plot(useVwap ? vwapVal : na, "VWAP", color = color.new(color.fuchsia, 0), linewidth = 1)
+
+bgcolor(inTrade ? color.new(color.green, 92) : na, title = "Sesion activa")
+
+plotshape(longCond,  title = "Senal Long",  style = shape.triangleup,   location = location.belowbar, color = color.green, size = size.tiny)
+plotshape(shortCond, title = "Senal Short", style = shape.triangledown, location = location.abovebar, color = color.red,   size = size.tiny)
+
+// -----------------------------------------------------------------------------
+// 7. ALERTAS
+// -----------------------------------------------------------------------------
+alertcondition(longCond,  "Entrada Long",  "Senal de compra Nasdaq intradia")
+alertcondition(shortCond, "Entrada Short", "Senal de venta Nasdaq intradia")
